@@ -35,7 +35,9 @@ while IFS="$(printf '\t')" read -r name cmd; do
 
   echo "$(date -u +%FT%TZ) start   $name" >> "$LOG"
   tmp="$OUT/$name.txt.part"
-  if sh -c "$cmd" > "$tmp" 2>> "$LOG"; then
+  cap=""
+  [ -n "${MEM_LIMIT_KB:-}" ] && cap="ulimit -v $MEM_LIMIT_KB;"
+  if sh -c "$cap $cmd" > "$tmp" 2>> "$LOG"; then
     mv "$tmp" "$OUT/$name.txt"
     echo "$(date -u +%FT%TZ) done    $name" >> "$LOG"
     printf '%s\n' "$name" > "$DONE/$name.done"
