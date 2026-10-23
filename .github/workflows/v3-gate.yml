@@ -22,6 +22,8 @@ jobs:
       MEM_KB: "14000000"
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Install build dependencies
         run: sudo apt-get install -y libncurses-dev unzip python3
@@ -51,7 +53,6 @@ jobs:
           set -e
           g++ -O2 -std=c++17 -Wall -Wextra -I thirdparty/faust/architecture \
             -I thirdparty/libfaust/ubuntu-x86_64/Release \
-            -I thirdparty/libfaust/ubuntu-x86_64/Release/include \
             thirdparty/libfaust/ubuntu-x86_64/Release/lib/libfaustwithllvm.a \
             tools/render-gate/render_gate.cpp -lz -lpthread -ldl -lm -ltinfo -o render_gate
       - name: Compile v3 and render the gate set in one process
