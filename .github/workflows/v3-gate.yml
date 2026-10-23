@@ -29,7 +29,9 @@ jobs:
         run: sudo apt-get install -y libncurses-dev unzip python3
 
       - name: Fetch the pinned libfaust for this runner
-        run: python3 thirdparty/libfaust/download_libfaust.py --arch x86_64
+        run: |
+          cd thirdparty/libfaust
+          python3 download_libfaust.py --arch x86_64
 
       - name: Fetch v3.dsp and check its hash
         run: |
