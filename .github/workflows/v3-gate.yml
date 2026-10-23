@@ -100,7 +100,12 @@ jobs:
           TARGET=${RPID:-$TPID}
           while kill -0 "$TARGET" 2>/dev/null; do
             v=$(awk '/VmRSS/{print $2}' "/proc/$TARGET/status" 2>/dev/null || true)
-            [ -n "$v" ] && echo "$(date -u +%s) $v" >> rss.trace
+            if [ -n "$v" ]; then
+              # Print as well as write: a killed runner takes its filesystem
+              # with it, so the job log is the only place a sample survives.
+              echo "$(date -u +%FT%TZ) rss_kb $v"
+              echo "$(date -u +%s) $v" >> rss.trace
+            fi
             sleep 5
           done
           rc=0; wait "$TPID" || rc=$?
