@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  publish-sanity:
+    name: Publish sanity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Submodule gitlinks are complete
+        run: |
+          python3 - <<'PY'
+          import configparser
+          import subprocess
+          import sys
+
+          modules = configparser.ConfigParser()
+          modules.read(".gitmodules")
+          broken = []
+          for section in modules.sections():
+              path = modules.get(section, "path")
+              url = modules.get(section, "url")
+              entry = subprocess.run(
+                  ["git", "ls-files", "-s", "--", path],
+                  capture_output=True, text=True, check=True,
+              ).stdout.split()
+              if not entry:
+                  broken.append(f"{path}: not tracked")
+              elif entry[0] != "160000":
+                  broken.append(f"{path}: mode {entry[0]}, expected a gitlink")
+              if not url.startswith(("https://", "git@")):
+                  broken.append(f"{path}: unusable url {url}")
+          for line in broken:
+              print(f"FAIL {line}")
+          print(f"{len(modules.sections())} submodule gitlinks checked")
+          sys.exit(1 if broken else 0)
+          PY
+
+      - name: Package metadata is readable
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import tomllib
+          import xml.etree.ElementTree as ET
+
+          tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+          version = ET.parse("DawDreamer.jucer").getroot().attrib["version"]
+          print(f"pyproject.toml parsed, DawDreamer.jucer version {version}")
+          if not version:
+              raise SystemExit("DawDreamer.jucer carries no version")
+          PY
+
+      - name: Documented install inputs are present
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import sys
+
+          required = [
+              "setup.py",
+              "DawDreamer.jucer",
+              "LICENSE",
+              "thirdparty/libfaust/download_libfaust.py",
+              "Builds/LinuxMakefile/Makefile",
+              "Builds/VisualStudio2022/DawDreamer.sln",
+              "Builds/MacOSX/DawDreamer.xcodeproj/project.pbxproj",
+          ]
+          missing = [p for p in required if not pathlib.Path(p).exists()]
+          for p in missing:
+              print(f"FAIL missing {p}")
+          print(f"{len(required) - len(missing)}/{len(required)} install inputs present")
+          sys.exit(1 if missing else 0)
+          PY
+
+      - name: Python sources compile
+        run: python3 -m compileall -q dawdreamer tests examples setup.py
