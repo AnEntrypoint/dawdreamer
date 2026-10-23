@@ -19,7 +19,6 @@ jobs:
       V3_SHA: "2b7a669827bab5b272919614fd5ccf17d94dae4288a8272a35a7603859b1107b"
       MC420: "https://raw.githubusercontent.com/AnEntrypoint/mc-420/main"
       GAIN: "0.00707945784384138"
-      MEM_KB: "60000000"
       FAUST_LIB_PATH: ${{ github.workspace }}/dawdreamer/faustlibraries
     steps:
       - uses: actions/checkout@v4
@@ -79,8 +78,15 @@ jobs:
         run: |
           set -e
           mkdir -p out
-          ( ulimit -v "$MEM_KB"
-            /usr/bin/time -v ./render_gate v3.dsp "$GAIN" out/gate in/*.wav ) 2> gate.time
+          # No ulimit -v on purpose. A virtual cap does not track RSS:
+          # LLVM reserves far more address space than it touches, so a cap
+          # fails the job before memory is actually short. Measured: at a
+          # 14 GB virtual cap this job died with bad_alloc/SIGABRT at
+          # 10,317,200 kB RSS, well under both the cap and the runner; with
+          # a 60 GB cap it produced no output at all for an hour. Running
+          # uncapped is what lets the report name a real ceiling, if one
+          # exists. Do not re-add a cap without a measured reason.
+          /usr/bin/time -v ./render_gate v3.dsp "$GAIN" out/gate in/*.wav 2> gate.time
           echo "rc=$?" >> gate.time
       - name: Report the memory ceiling
         run: |
