@@ -53,10 +53,24 @@ jobs:
       - name: Build the harness
         run: |
           set -e
-          g++ -O2 -std=c++17 -Wall -Wextra -I thirdparty/faust/architecture \
-            -I thirdparty/libfaust/ubuntu-x86_64/Release \
-            thirdparty/libfaust/ubuntu-x86_64/Release/lib/libfaustwithllvm.a \
-            tools/render-gate/render_gate.cpp -lz -lpthread -ldl -lm -ltinfo -o render_gate
+          LIB=thirdparty/libfaust/ubuntu-x86_64/Release/lib/libfaustwithllvm.a
+          SRC="-I thirdparty/faust/architecture -I thirdparty/libfaust/ubuntu-x86_64/Release"
+          # The downloaded libfaust is built with the pre-C++11 std::string
+          # ABI; the header declares createDSPFactoryFromFile taking a
+          # std::string, so the harness must match or the link fails with
+          # undefined reference to ...std::__cxx11::basic_string...
+          if g++ -O2 -std=c++17 -Wall -Wextra $SRC \
+            -D_GLIBCXX_USE_CXX11_ABI=0 \
+            tools/render-gate/render_gate.cpp "$LIB" \
+            -lz -lpthread -ldl -lm -ltinfo -o render_gate 2> build_oldabi.log; then
+            echo "linked with _GLIBCXX_USE_CXX11_ABI=0"
+          else
+            echo "old-ABI link failed, retrying with the default ABI"
+            cat build_oldabi.log
+            g++ -O2 -std=c++17 -Wall -Wextra $SRC \
+              tools/render-gate/render_gate.cpp "$LIB" \
+              -lz -lpthread -ldl -lm -ltinfo -o render_gate
+          fi
       - name: Compile v3 and render the gate set in one process
         run: |
           set -e
