@@ -1,0 +1,47 @@
+name: Clean Install
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  clean-install:
+    name: Fresh clone, pip install -e ., render engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install Linux prerequisites
+        run: |
+          sudo apt-get update -yq
+          sudo apt-get install -yq build-essential clang cmake git python3-dev \
+            libboost-all-dev libfreetype6-dev libncurses-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxrender-dev \
+            libxcomposite-dev libxcursor-dev libasound2-dev
+
+      - name: Download libfaust
+        run: |
+          cd thirdparty/libfaust
+          python3 download_libfaust.py
+
+      - name: Install the package
+        run: pip install -e .
+
+      - name: Import and build a render engine
+        run: python3 -c "import dawdreamer; dawdreamer.RenderEngine(44100, 512); print('RENDER_ENGINE_OK')"
