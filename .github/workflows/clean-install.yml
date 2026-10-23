@@ -18,6 +18,8 @@ jobs:
   clean-install:
     name: Fresh clone, pip install -e ., render engine
     runs-on: ubuntu-latest
+    env:
+      CPATH: /usr/include/freetype2
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,7 +32,7 @@ jobs:
       - name: Install Linux prerequisites
         run: |
           sudo apt-get update -yq
-          sudo apt-get install -yq build-essential clang cmake git python3-dev \
+          sudo apt-get install -yq build-essential clang cmake git pkg-config python3-dev \
             libboost-all-dev libfreetype6-dev libncurses-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxrender-dev \
             libxcomposite-dev libxcursor-dev libasound2-dev
