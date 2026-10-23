@@ -20,7 +20,7 @@ jobs:
       MC420: "https://raw.githubusercontent.com/AnEntrypoint/mc-420/main"
       GAIN: "0.00707945784384138"
       MEM_KB: "14000000"
-      FAUST_LIB_PATH: ${{ github.workspace }}/thirdparty/faust/libraries
+      FAUST_LIB_PATH: ${{ github.workspace }}/dawdreamer/faustlibraries
     steps:
       - uses: actions/checkout@v4
         with:
