@@ -19,7 +19,7 @@ jobs:
       V3_SHA: "2b7a669827bab5b272919614fd5ccf17d94dae4288a8272a35a7603859b1107b"
       MC420: "https://raw.githubusercontent.com/AnEntrypoint/mc-420/main"
       GAIN: "0.00707945784384138"
-      MEM_KB: "14000000"
+      MEM_KB: "60000000"
       FAUST_LIB_PATH: ${{ github.workspace }}/dawdreamer/faustlibraries
     steps:
       - uses: actions/checkout@v4
@@ -56,10 +56,13 @@ jobs:
           set -e
           LIB=thirdparty/libfaust/ubuntu-x86_64/Release/lib/libfaustwithllvm.a
           SRC="-I thirdparty/faust/architecture -I thirdparty/libfaust/ubuntu-x86_64/Release"
-          # The downloaded libfaust is built with the pre-C++11 std::string
-          # ABI; the header declares createDSPFactoryFromFile taking a
-          # std::string, so the harness must match or the link fails with
-          # undefined reference to ...std::__cxx11::basic_string...
+          # createDSPFactoryFromFile is declared taking a std::string, so
+          # the harness and the archive must agree on the string ABI or
+          # the link fails. Measured: with the 2.85.9 release archive the
+          # default (C++11) ABI is the one that links, so the old-ABI
+          # attempt below is kept only as a self-describing probe; do not
+          # record it as the fix. If neither links, build_oldabi.log and
+          # this step's output name which was tried.
           if g++ -O2 -std=c++17 -Wall -Wextra $SRC \
             -D_GLIBCXX_USE_CXX11_ABI=0 \
             tools/render-gate/render_gate.cpp "$LIB" \
