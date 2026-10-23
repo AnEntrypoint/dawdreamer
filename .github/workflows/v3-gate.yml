@@ -1,0 +1,75 @@
+name: v3-gate
+
+on:
+  push:
+    paths:
+      - 'tools/render-gate/**'
+      - '.github/workflows/v3-gate.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v3-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      V3_SHA: "2b7a669827bab5b272919614fd5ccf17d94dae4288a8272a35a7603859b1107b"
+      MC420: "https://raw.githubusercontent.com/AnEntrypoint/mc-420/main"
+      GAIN: "0.00707945784384138"
+      MEM_KB: "14000000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: sudo apt-get install -y libncurses-dev unzip python3
+
+      - name: Fetch the pinned libfaust for this runner
+        run: python3 thirdparty/libfaust/download_libfaust.py --arch x86_64
+
+      - name: Fetch v3.dsp and check its hash
+        run: |
+          set -e
+          curl -fL "$MC420/docs/witness/pitch-2093-raw/lock-sub30/variants/v3.dsp" -o v3.dsp
+          GOT=$(sha256sum v3.dsp | cut -d' ' -f1)
+          echo "v3 sha $GOT"
+          [ "$GOT" = "$V3_SHA" ] || { echo "::error::v3.dsp hash mismatch"; exit 1; }
+
+      - name: Fetch the gate inputs
+        run: |
+          set -e
+          mkdir -p in
+          for f in crotale_high_C7 marimba_mid_C5B5; do
+            curl -fL "$MC420/test-audio-corpus/instruments/$f.wav" -o "in/$f.wav"
+          done
+          python3 tools/render-gate/make_sines.py in
+          ls -la in
+      - name: Build the harness
+        run: |
+          set -e
+          g++ -O2 -std=c++17 -Wall -Wextra -I thirdparty/faust/architecture \
+            -I thirdparty/libfaust/ubuntu-x86_64/Release \
+            thirdparty/libfaust/ubuntu-x86_64/Release/lib/libfaustwithllvm.a \
+            tools/render-gate/render_gate.cpp -lz -lpthread -ldl -lm -ltinfo -o render_gate
+      - name: Compile v3 and render the gate set in one process
+        run: |
+          set -e
+          mkdir -p out
+          ( ulimit -v "$MEM_KB"
+            /usr/bin/time -v ./render_gate v3.dsp "$GAIN" out/gate in/*.wav ) 2> gate.time
+          echo "rc=$?" >> gate.time
+      - name: Report the memory ceiling
+        run: |
+          grep -E "Maximum resident|Elapsed|Exit status" gate.time || true
+      - name: Upload the traces and the memory report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-gate
+          path: |
+            out/
+            gate.time
+          if-no-files-found: warn
+          retention-days: 14
