@@ -35,7 +35,8 @@ jobs:
           sudo apt-get install -yq build-essential clang cmake git pkg-config python3-dev \
             libboost-all-dev libfreetype6-dev libncurses-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxrender-dev \
-            libxcomposite-dev libxcursor-dev libasound2-dev
+            libxcomposite-dev libxcursor-dev libasound2-dev \
+            libgl1-mesa-dev libglu1-mesa-dev mesa-common-dev
 
       - name: Download libfaust
         run: |
