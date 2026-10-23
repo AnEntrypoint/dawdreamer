@@ -86,11 +86,36 @@ jobs:
           # a 60 GB cap it produced no output at all for an hour. Running
           # uncapped is what lets the report name a real ceiling, if one
           # exists. Do not re-add a cap without a measured reason.
-          /usr/bin/time -v ./render_gate v3.dsp "$GAIN" out/gate in/*.wav 2> gate.time
-          echo "rc=$?" >> gate.time
+          /usr/bin/time -v ./render_gate v3.dsp "$GAIN" out/gate in/*.wav 2> gate.time &
+          TPID=$!
+          # Sample the render process, not the time wrapper: GNU time
+          # forks, so VmRSS of $TPID is the wrapper's.
+          RPID=""
+          for i in $(seq 1 50); do
+            RPID=$(pgrep -P "$TPID" -n 2>/dev/null || true)
+            [ -n "$RPID" ] && break
+            sleep 0.2
+          done
+          echo "# sampled pid ${RPID:-none}" >> rss.trace
+          TARGET=${RPID:-$TPID}
+          while kill -0 "$TARGET" 2>/dev/null; do
+            v=$(awk '/VmRSS/{print $2}' "/proc/$TARGET/status" 2>/dev/null || true)
+            [ -n "$v" ] && echo "$(date -u +%s) $v" >> rss.trace
+            sleep 5
+          done
+          rc=0; wait "$TPID" || rc=$?
+          echo "rc=$rc" >> gate.rc
+          echo "peak_kb $(awk '{if ($2 > m) m = $2} END {print m+0}' rss.trace)" >> gate.rc
       - name: Report the memory ceiling
+        if: always()
         run: |
-          grep -E "Maximum resident|Elapsed|Exit status" gate.time || true
+          echo "--- rss.trace peak and tail ---"
+          awk '{if ($2 > m) m = $2} END {print "peak_kb " m+0}' rss.trace 2>/dev/null || true
+          tail -5 rss.trace 2>/dev/null || true
+          echo "--- gate.rc ---"
+          cat gate.rc 2>/dev/null || true
+          echo "--- gate.time ---"
+          grep -E "Maximum resident|Elapsed|Exit status" gate.time 2>/dev/null || true
       - name: Upload the traces and the memory report
         if: always()
         uses: actions/upload-artifact@v4
@@ -98,6 +123,8 @@ jobs:
           name: v3-gate
           path: |
             out/
+            rss.trace
+            gate.rc
             gate.time
           if-no-files-found: warn
           retention-days: 14
