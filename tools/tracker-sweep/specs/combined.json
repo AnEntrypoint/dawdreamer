@@ -1,0 +1,37 @@
+{
+ "name": "combined",
+ "input_root": "/kaggle/input/tracker-sweep-inputs",
+ "work": "/kaggle/working",
+ "gain": 1.0,
+ "wavs": "all",
+ "report": "sweep",
+ "variants": [
+  {
+   "name": "baseline",
+   "dsp": "A_e557252",
+   "subs": [],
+   "flags": "pinned",
+   "axis": "baseline",
+   "path": "-",
+   "value": "shipped"
+  },
+  {
+   "name": "combined",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "    energyTau = 0.01;",
+     "    energyTau = 0.02;"
+    ],
+    [
+     "refineSpreadK(L) = int(refineSpreadRatio * float(L) + 0.5) : max(refineSpreadFloor) : min(refineSpreadMax);",
+     "refineSpreadK(L) = 4;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "combined",
+   "path": "combined",
+   "value": "coarse=shipped,refine=0.02,spread=4,margin=0.004,onset=35.0,gate=0.85"
+  }
+ ]
+}
