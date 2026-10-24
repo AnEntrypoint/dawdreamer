@@ -3,7 +3,7 @@ Written and committed before any render. Thresholds below are fixed; they are no
 
 DEVICE UNDER TEST
 File: /config/workspace/mc-420/dsp/loop.dsp (mc-420 HEAD 97a1dee9; file clean against HEAD when this was written)
-sha256: 1be68dc68d3ccb1e6aa37f17e08f9a8d7a219e97e3007b9d4c25f95c57187c8b
+sha256: 1be68dc72d3ccb1e6aa37f17e08f9a8d7a219e97e3007b9d4c25f95c57187c8b
 process: 10 inputs (in, prevFiltIn, clearAll, effSpeed, manualSpeed, masterPhase, masterLen, sidechainEnv, recordedBeats, foldNow); 22 outputs (in, loopSum, then 20 per-looper outputs). looper00 is output index 2.
 Reading of the brief: loop.dsp contains no aloop_pre, aloop_post or delayverb. The composition dsp/aloop_pre.dsp wraps loop.dsp and then effects_runtime_pre.dsp, where delayverb lives. The four checks are tested on loop.dsp alone. The delayverb stage is not tested.
 

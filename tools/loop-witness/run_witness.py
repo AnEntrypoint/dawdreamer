@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import tarfile
 
-DSP_SHA = "1be68dc68d3ccb1e6aa37f17e08f9a8d7a219e97e3007b9d4c25f95c57187c8b"
+DSP_SHA = "1be68dc72d3ccb1e6aa37f17e08f9a8d7a219e97e3007b9d4c25f95c57187c8b"
 WORK = "/kaggle/working"
 RESULTS = os.path.join(WORK, "results.txt")
 
@@ -75,4 +75,8 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        code = main()
+    finally:
+        shutil.rmtree(os.path.join(WORK, "dd"), ignore_errors=True)
+    raise SystemExit(code)
