@@ -145,36 +145,72 @@ emit("META", "faust_src_rc", rc, last_line(out, err))
 rc, out, err = sh("curl -sL https://github.com/grame-cncm/faustlibraries/archive/%s.tar.gz -o faustlibs.tar.gz && mkdir -p faust-libs && tar -xzf faustlibs.tar.gz -C faust-libs --strip-components=1 && ls faust-libs/stdfaust.lib" % FAUSTLIB_SHA)
 emit("META", "faustlibs_rc", rc, last_line(out, err))
 
+def run(args, cwd):
+    r = subprocess.run(args, capture_output=True, text=True, cwd=cwd)
+    return r.returncode, r.stdout, r.stderr
+
+
 ARCH = os.path.join(W, "faust-src", "faust-%s" % FAUST, "architecture")
-build = "g++ -O2 -std=c++17 -I %s -I %s/faust-lib render_gate.cpp" % (ARCH, W)
-rc, out, err = sh(build + " faust-lib/lib/libfaustwithllvm.a -lz -lpthread -ldl -lm -ltinfo -o render_gate")
+LIBFAUST = os.path.join(W, "faust-lib", "lib", "libfaustwithllvm.a")
+FAUSTLIBS = os.path.join(W, "faust-libs")
+FAUST_CLI = os.path.join(W, "faust_cli")
+with open(os.path.join(W, "stub.c"), "w") as f:
+    f.write(STUB)
+run(["gcc", "-O2", "-c", "stub.c", "-o", "stub.o"], W)
+RECIPES = [
+    ("plain", ["-O2", "-std=c++17"], False),
+    ("abi0", ["-O2", "-std=c++17", "-D_GLIBCXX_USE_CXX11_ABI=0"], False),
+    ("stub", ["-O2", "-std=c++17"], True),
+]
+for rname, cflags, stub in RECIPES:
+    cmd = ["g++"] + cflags + ["-I", ARCH, "-I", os.path.join(W, "faust-lib"), os.path.join(W, "faust_cli.cpp")]
+    if stub:
+        cmd += [os.path.join(W, "stub.o")]
+    cmd += [LIBFAUST, "-lz", "-lpthread", "-ldl", "-lm"]
+    if not stub:
+        cmd += ["-ltinfo"]
+    rc, out, err = run(cmd + ["-o", FAUST_CLI], W)
+    emit("META", "faust_cli_recipe", rname, rc, last_line(out, err))
+    if rc == 0:
+        break
+emit("META", "faust_cli_build_rc", rc)
 if rc != 0:
-    rc, out, err = sh("g++ -O2 -std=c++17 -D_GLIBCXX_USE_CXX11_ABI=0 -I %s -I %s/faust-lib render_gate.cpp faust-lib/lib/libfaustwithllvm.a -lz -lpthread -ldl -lm -ltinfo -o render_gate" % (ARCH, W))
-if rc != 0:
-    with open(os.path.join(W, "stub.c"), "w") as f:
-        f.write(STUB)
-    rc, out, err = sh("g++ -O2 -std=c++17 -I %s -I %s/faust-lib render_gate.cpp stub.c faust-lib/lib/libfaustwithllvm.a -lz -lpthread -ldl -lm -o render_gate" % (ARCH, W))
-emit("META", "render_build_rc", rc, last_line(out, err))
-if rc != 0:
-    raise SystemExit("render build failed")
+    raise SystemExit("faust_cli build failed")
 
 for v in NAMES:
     for tau in TAUS:
         key = "%s_%s" % (v, tau)
         outdir = os.path.join(W, "out", key)
         os.makedirs(outdir, exist_ok=True)
-        env = dict(os.environ)
-        env["FAUST_LIBRARY_DIR"] = os.path.join(W, "faust-libs")
         dsp_path = os.path.join(W, "dsp", key + ".dsp")
+        bdir = os.path.join(W, "build", key)
+        os.makedirs(bdir, exist_ok=True)
         t0 = time.time()
+        frc, fout, ferr = run([FAUST_CLI, "-lang", "cpp", "-vec", "-fun", "-dfs", "-vs", "32", "-nvi", "-ct", "0", "-I", FAUSTLIBS, dsp_path, "-o", "dsp.cpp"], bdir)
+        with open(os.path.join(bdir, "faust.log"), "w") as f:
+            f.write(fout + ferr)
+        cpp_path = os.path.join(bdir, "dsp.cpp")
+        cpp_sha = sha256(cpp_path) if os.path.exists(cpp_path) else "none"
+        drc = 1
+        dout = derr = ""
+        if frc == 0:
+            shutil.copy(os.path.join(W, "render_cpp_driver.cpp"), os.path.join(bdir, "render_cpp_driver.cpp"))
+            drc, dout, derr = run(["g++", "-O3", "-std=c++17", "-I", ARCH, "render_cpp_driver.cpp", "-o", "render_cpp"], bdir)
+            with open(os.path.join(bdir, "gxx.log"), "w") as f:
+                f.write(dout + derr)
+        emit("BUILD", v, tau, frc, drc, cpp_sha, round(time.time() - t0, 1))
+        if frc != 0 or drc != 0:
+            emit("RUN", v, tau, sha256(dsp_path), "build_failed", round(time.time() - t0, 1))
+            continue
+        t1 = time.time()
         try:
-            r = subprocess.run([os.path.join(W, "render_gate"), dsp_path, "1.0", os.path.join(outdir, "g")] + [os.path.join(INP, f) for f in WAVS], capture_output=True, text=True, env=env, timeout=3600, cwd=W)
+            r = subprocess.run([os.path.join(bdir, "render_cpp"), dsp_path, "1.0", os.path.join(outdir, "g")] + [os.path.join(INP, f) for f in WAVS], capture_output=True, text=True, timeout=3600, cwd=bdir)
             rc, log = r.returncode, r.stdout + r.stderr
         except subprocess.TimeoutExpired:
             rc, log = "timeout", ""
         with open(os.path.join(W, "log_%s.txt" % key), "w") as f:
             f.write(log)
-        emit("RUN", v, tau, sha256(dsp_path), rc, round(time.time() - t0, 1))
+        emit("RUN", v, tau, sha256(dsp_path), rc, round(time.time() - t1, 1))
         for f in WAVS:
             base = f[:-4]
             path = os.path.join(outdir, "g_%s.txt" % base)
@@ -212,7 +248,8 @@ def main(shipped_path, normalise_path, outdir):
         raise SystemExit("S_0.01 is not the shipped text")
     src = {
         "fetch_corpus.py": read(os.path.join(REPO, "tools", "corpus", "fetch_corpus.py")),
-        "render_gate.cpp": read(os.path.join(REPO, "tools", "render-gate", "render_gate.cpp")),
+        "render_cpp_driver.cpp": read(os.path.join(REPO, "tools", "sine-clamp", "render_cpp_driver.cpp")),
+        "faust_cli.cpp": read(os.path.join(REPO, "tools", "sine-clamp", "faust_cli.cpp")),
         "normalise-corpus.mjs": normalise,
     }
     code = (

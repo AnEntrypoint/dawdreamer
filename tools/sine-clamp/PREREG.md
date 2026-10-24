@@ -87,6 +87,23 @@ the output ceiling altogether, so it is near that variant but not the same.
 - Row A verdict: a change "removes the constant" if R4 holds at both taus. It is a candidate fix only if R2 and R3
   also hold at both taus. Lag constants over every file are also listed, unscored, so effects on pitched files show.
 
+## Amendment 1: renderer backend (made before any numbers; kernel v1 produced none)
+
+- The verdict renderer is the C++ backend, not the libfaust LLVM JIT. Each variant is compiled by
+  `faust_cli` (`faust_cli.cpp`, linked against the 2.85.9 release `libfaustwithllvm.a`) as
+  `faust_cli -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0 -I <faust-libs> <dsp> -o dsp.cpp`, and the driver
+  `render_cpp_driver.cpp` is built with `g++ -O3 -std=c++17 -I <architecture>` (no -mcpu, x86-64) into `dsp.cpp`'s
+  directory. The driver is `render_cpp <label> <gain> <outprefix> <wav>...`, the same blocks, gain and outputs as `render_gate`.
+- Reason: the LLVM backend rejects `-nvi` ("can only be used with 'c', 'cpp' or 'ocpp' backends"), so the pinned flags
+  cannot run on the JIT path. Commit d2c2d381 had added them to the shared `render_gate.cpp`; that line is reverted
+  here, so `render_gate.cpp` is the bare LLVM harness again (634a4ad4) and produces no verdict in this witness.
+- Evidence the backend does not change the measurement: the flag-check agent (adb9aa917cad309db, heclgang/flag-check-witness v4)
+  found the C++ pinned build and the LLVM bare build give identical medians, differences about 1e-4 Hz.
+- Unchanged: variants and their edits, both taus, corpus and normalisation, sines, pitchless inputs, settle rule,
+  references, targets, controls, and rules R1 to R4 and the verdict rules.
+- Harness copies: `render_cpp_driver.cpp` and `faust_cli.cpp` in this directory are the flag-check agent's files
+  with their full-line comments removed (no code change).
+
 ## Not tested (declared now)
 
 - Comb certification or whole-series measurement of the phrase files and out-of-range files; the sweep addendum's
