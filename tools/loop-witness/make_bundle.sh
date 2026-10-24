@@ -10,17 +10,15 @@ DSET="$OUT/dataset"
 KDIR="$OUT/kernel"
 
 rm -rf "$STAGE" "$DSET" "$KDIR"
-mkdir -p "$STAGE/thirdparty/faust" "$STAGE/thirdparty/libfaust" "$STAGE/dawdreamer" "$DSET" "$KDIR"
+mkdir -p "$STAGE" "$DSET" "$KDIR"
 
 git -C "$REPO" show "$SHA:tools/loop-witness/loop_witness.cpp" > "$STAGE/loop_witness.cpp"
+git -C "$REPO" show "$SHA:tools/loop-witness/faust_cli.cpp" > "$STAGE/faust_cli.cpp"
 git -C "$REPO" show "$SHA:tools/loop-witness/prereg.txt" > "$STAGE/prereg.txt"
 git -C "$REPO" show "$SHA:tools/loop-witness/run_witness.py" > "$KDIR/run_witness.py"
 cp /config/workspace/mc-420/dsp/loop.dsp "$STAGE/loop.dsp"
-cp -r "$REPO/thirdparty/faust/architecture" "$STAGE/thirdparty/faust/architecture"
-cp "$REPO/thirdparty/libfaust/download_libfaust.py" "$STAGE/thirdparty/libfaust/download_libfaust.py"
-cp -r "$REPO/dawdreamer/faustlibraries" "$STAGE/dawdreamer/faustlibraries"
 
-(cd "$STAGE" && sha256sum loop.dsp loop_witness.cpp prereg.txt thirdparty/libfaust/download_libfaust.py > MANIFEST.sha256)
+(cd "$STAGE" && sha256sum loop.dsp loop_witness.cpp faust_cli.cpp prereg.txt > MANIFEST.sha256)
 tar -czf "$DSET/inputs.tar.gz" -C "$STAGE" .
 
 cat > "$DSET/dataset-metadata.json" <<'EOF'

@@ -1,5 +1,8 @@
-#include <faust/dsp/llvm-dsp.h>
+#include <faust/gui/meta.h>
+#include <faust/gui/UI.h>
 #include <faust/gui/MapUI.h>
+#include <faust/dsp/dsp.h>
+#include "dsp.cpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -18,7 +21,6 @@ const int NIN = 10;
 const int NOUT = 22;
 const int LOOPER_OUT = 2;
 
-llvm_dsp_factory* gFac = nullptr;
 std::vector<float> gX;
 
 struct Cfg {
@@ -68,7 +70,7 @@ Trace run(const Cfg& c)
     tr.widx.assign(c.total, 0.0f);
     tr.wlen.assign(c.total, 0.0f);
 
-    dsp* d = gFac->createDSPInstance();
+    mydsp* d = new mydsp();
     d->init((int)SR);
     if (d->getNumInputs() != NIN || d->getNumOutputs() != NOUT) {
         std::printf("INCONCLUSIVE io mismatch inputs=%d outputs=%d\n", d->getNumInputs(), d->getNumOutputs());
@@ -175,35 +177,9 @@ Loop analyseLoop(const Trace& tr, long L)
 
 }
 
-int main(int argc, char** argv)
+int main()
 {
-    if (argc < 2) {
-        std::fprintf(stderr, "usage: loop_witness loop.dsp\n");
-        return 2;
-    }
-
-    std::vector<const char*> flags;
-    const char* lib = std::getenv("FAUST_LIBRARY_DIR");
-    if (lib != nullptr && *lib != '\0') {
-        flags.push_back("-I");
-        flags.push_back(lib);
-    }
-    flags.push_back("-vec");
-    flags.push_back("-fun");
-    flags.push_back("-dfs");
-    flags.push_back("-vs");
-    flags.push_back("32");
-    flags.push_back("-nvi");
-    flags.push_back("-ct");
-    flags.push_back("0");
-
-    std::string err;
-    gFac = createDSPFactoryFromFile(argv[1], (int)flags.size(), flags.data(), "", err, -1);
-    if (gFac == nullptr) {
-        std::printf("INCONCLUSIVE compile failed: %s\n", err.c_str());
-        return 4;
-    }
-    std::printf("compiled %s with %d flags\n", argv[1], (int)flags.size());
+    std::printf("backend cpp (generated mydsp, dsp.cpp from faust_cli, flags -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0)\n");
 
     gX.assign(1000000, 0.0f);
     unsigned int seed = 12345u;
@@ -321,7 +297,5 @@ int main(int argc, char** argv)
         }
     }
     std::printf("CHECK4 %s\n", c4ok ? "PASS" : "FAIL");
-
-    deleteDSPFactory(gFac);
     return 0;
 }

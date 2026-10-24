@@ -3,23 +3,35 @@ import os
 import shutil
 import subprocess
 import tarfile
+import zipfile
 
 DSP_SHA = "1be68dc72d3ccb1e6aa37f17e08f9a8d7a219e97e3007b9d4c25f95c57187c8b"
+FAUST = "2.85.9"
+FAUSTLIB_SHA = "78a72d4998dec43e20492ef9b78d1a785b3dc864"
 WORK = "/kaggle/working"
 RESULTS = os.path.join(WORK, "results.txt")
+LIBFAUST_URL = "https://github.com/grame-cncm/faust/releases/download/%s/libfaust-ubuntu-x86_64.zip" % FAUST
+FAUST_SRC_URL = "https://github.com/grame-cncm/faust/archive/refs/tags/%s.tar.gz" % FAUST
+FAUSTLIB_URL = "https://github.com/grame-cncm/faustlibraries/archive/%s.tar.gz" % FAUSTLIB_SHA
+FLAGS = ["-lang", "cpp", "-vec", "-fun", "-dfs", "-vs", "32", "-nvi", "-ct", "0"]
 
 
-def sh(cmd, cwd=None, env=None):
-    p = subprocess.run(cmd, shell=True, cwd=cwd, env=env, capture_output=True, text=True)
+def sh(args):
+    p = subprocess.run(args, capture_output=True, text=True)
     return p.returncode, p.stdout + p.stderr
+
+
+def sha256(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
 
 def find_input():
     for root, _dirs, files in os.walk("/kaggle/input"):
-        if "loop.dsp" in files and "loop_witness.cpp" in files:
-            return root
         if "inputs.tar.gz" in files:
             return os.path.join(root, "inputs.tar.gz")
+        if "loop.dsp" in files and "loop_witness.cpp" in files:
+            return root
     return None
 
 
@@ -30,10 +42,15 @@ def emit(lines):
     print(text, end="")
 
 
+def fail(log, msg, detail=""):
+    emit(log + ["INCONCLUSIVE " + msg, detail[-3000:]])
+    return 1
+
+
 def main():
     src = find_input()
     if src is None:
-        emit(["INCONCLUSIVE no loop.dsp, loop_witness.cpp or inputs.tar.gz under /kaggle/input"])
+        emit(["INCONCLUSIVE no inputs.tar.gz or loop.dsp under /kaggle/input"])
         return 1
     dd = os.path.join(WORK, "dd")
     shutil.rmtree(dd, ignore_errors=True)
@@ -43,34 +60,55 @@ def main():
             t.extractall(dd)
     else:
         shutil.copytree(src, dd)
+    os.chdir(dd)
 
-    with open(os.path.join(dd, "loop.dsp"), "rb") as f:
-        digest = hashlib.sha256(f.read()).hexdigest()
+    digest = sha256("loop.dsp")
+    log = ["loop.dsp sha256 %s" % digest]
     if digest != DSP_SHA:
-        emit(["INCONCLUSIVE loop.dsp sha256 %s != pre-registered %s" % (digest, DSP_SHA)])
-        return 1
+        return fail(log, "loop.dsp sha256 != pre-registered %s" % DSP_SHA)
+    log.append("loop.dsp sha256 matches the pre-registered value")
 
-    sh("apt-get install -y -q libncurses-dev unzip >/dev/null 2>&1 || sudo apt-get install -y -q libncurses-dev unzip >/dev/null 2>&1")
+    sh(["sh", "-c", "(apt-get update -qq && apt-get install -y -qq libncurses-dev) >/dev/null 2>&1"])
 
-    rc, out = sh("python3 download_libfaust.py --arch x86_64", cwd=os.path.join(dd, "thirdparty", "libfaust"))
+    for url, name in ((LIBFAUST_URL, "libfaust.zip"), (FAUST_SRC_URL, "faust.tar.gz"), (FAUSTLIB_URL, "faustlibs.tar.gz")):
+        rc, out = sh(["curl", "-sfL", "--retry", "3", url, "-o", name])
+        if rc != 0:
+            return fail(log, "fetch failed: " + url, out)
+        log.append("fetched %s sha256 %s" % (name, sha256(name)))
+
+    zipfile.ZipFile("libfaust.zip").extractall("faust-lib")
+    os.makedirs("faust-src", exist_ok=True)
+    rc, out = sh(["tar", "-xzf", "faust.tar.gz", "-C", "faust-src", "--wildcards", "*/architecture/*"])
+    os.makedirs("faust-libs", exist_ok=True)
+    rc2, out2 = sh(["tar", "-xzf", "faustlibs.tar.gz", "-C", "faust-libs", "--strip-components=1"])
+    arch = os.path.abspath("faust-src/faust-%s/architecture" % FAUST)
+    libfaust = os.path.abspath("faust-lib/lib/libfaustwithllvm.a")
+    libdir = os.path.abspath("faust-libs")
+    if not (os.path.isdir(arch) and os.path.isfile(libfaust) and os.path.isfile(os.path.join(libdir, "stdfaust.lib"))):
+        return fail(log, "toolchain incomplete", out + out2)
+
+    rc, out = sh(["g++", "-O2", "-std=c++17", "-I", arch, "-I", os.path.abspath("faust-lib"), "faust_cli.cpp",
+                  libfaust, "-lz", "-lpthread", "-ldl", "-lm", "-ltinfo", "-o", "faust_cli"])
     if rc != 0:
-        emit(["INCONCLUSIVE libfaust download failed rc=%d" % rc, out[-3000:]])
-        return 1
+        return fail(log, "faust_cli build failed", out)
+    log.append("faust_cli built (plain recipe) sha256 %s" % sha256("faust_cli"))
 
-    inc = os.path.join(dd, "thirdparty", "libfaust", "ubuntu-x86_64", "Release")
-    lib = os.path.join(inc, "lib", "libfaustwithllvm.a")
-    arch = os.path.join(dd, "thirdparty", "faust", "architecture")
-    cmd = "g++ -O2 -std=c++17 -I %s -I %s loop_witness.cpp %s -lz -lpthread -ldl -lm -ltinfo -o loop_witness" % (arch, inc, lib)
-    rc, out = sh(cmd, cwd=dd)
+    rc, out = sh(["./faust_cli"] + FLAGS + ["-I", libdir, "loop.dsp", "-o", "dsp.cpp"])
+    if rc != 0 or not os.path.isfile("dsp.cpp"):
+        return fail(log, "faust_cli did not generate dsp.cpp", out)
+    log.append("dsp.cpp sha256 %s" % sha256("dsp.cpp"))
+    with open("dsp.cpp") as f:
+        for line in f:
+            if "Compilation options" in line or "Code generated with Faust" in line:
+                log.append("dsp.cpp header: " + line.strip())
+
+    rc, out = sh(["g++", "-O3", "-std=c++17", "-I", arch, "loop_witness.cpp", "-o", "loop_witness"])
     if rc != 0:
-        emit(["INCONCLUSIVE harness build failed rc=%d" % rc, out[-3000:]])
-        return 1
+        return fail(log, "harness build failed", out)
+    log.append("harness built g++ -O3 sha256 %s" % sha256("loop_witness"))
 
-    env = dict(os.environ)
-    env["FAUST_LIBRARY_DIR"] = os.path.join(dd, "dawdreamer", "faustlibraries")
-    rc, out = sh("./loop_witness loop.dsp", cwd=dd, env=env)
-    head = ["loop.dsp sha256 %s (verified)" % digest, "harness exit rc=%d" % rc]
-    emit(head + out.splitlines())
+    rc, out = sh(["./loop_witness"])
+    emit(log + ["harness exit rc=%d" % rc] + out.splitlines())
     return 0
 
 
