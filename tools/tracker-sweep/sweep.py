@@ -300,8 +300,16 @@ def write_kernel(spec_path, kdir, slug, title):
     with open(os.path.join(kdir, "kernel-metadata.json"), "w") as f:
         json.dump(meta, f, indent=2)
     code = (
-        "import json, subprocess, sys\n"
+        "import json, os, shutil, subprocess, sys, zipfile\n"
+        "SRC = '/kaggle/input/tracker-sweep-inputs'\n"
+        "DST = '/kaggle/working/inputs'\n"
         "SPEC = json.loads(%r)\n"
+        "if os.path.exists(os.path.join(SRC, 'inputs.zip')):\n"
+        "    os.makedirs(DST, exist_ok=True)\n"
+        "    zipfile.ZipFile(os.path.join(SRC, 'inputs.zip')).extractall(DST)\n"
+        "else:\n"
+        "    shutil.copytree(os.path.join(SRC, 'inputs'), DST)\n"
+        "SPEC['input_root'] = DST\n"
         "path = '/kaggle/working/spec.json'\n"
         "with open(path, 'w') as f:\n"
         "    json.dump(SPEC, f)\n"
