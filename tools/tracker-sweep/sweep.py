@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import concurrent.futures
 import hashlib
 import json
 import math
@@ -16,6 +17,10 @@ import zipfile
 PINNED = "-vec -fun -dfs -vs 32 -nvi -ct 0"
 FAUST_VERSION = "2.85.9"
 FAUST_URL = "https://github.com/grame-cncm/faust/archive/refs/tags/2.85.9.tar.gz"
+LIBFAUST_URL = "https://github.com/grame-cncm/faust/releases/download/2.85.9/libfaust-ubuntu-x86_64.zip"
+FAUSTLIB_SHA = "78a72d4998dec43e20492ef9b78d1a785b3dc864"
+FAUSTLIB_URL = "https://github.com/grame-cncm/faustlibraries/archive/%s.tar.gz" % FAUSTLIB_SHA
+BASELINE_DSP_SHA256 = "abe8866ef78c922a83925f341ce0ef4ae236c380246cb30d5f955076245ac3cb"
 TARGETS = {
     "piano_mid_C4": 262.22,
     "marimba_low_C2B2": 65.21,
@@ -80,6 +85,10 @@ def read_trace(path):
     return rows
 
 
+def trace_path(tdir, w):
+    return os.path.join(tdir, "out_" + w + ".txt")
+
+
 def settled(rows):
     vals = [hz for t, hz in rows if t >= 1.0 and hz != 0.0]
     return statistics.median(vals) if vals else 0.0
@@ -103,42 +112,88 @@ def run_logged(cmd, log, env=None, cwd=None):
     return proc
 
 
-def build_faust(work, log):
-    fdir = os.path.join(work, "faust-" + FAUST_VERSION)
-    found = None
-    if os.path.isdir(fdir):
-        for dp, _, fn in os.walk(os.path.join(fdir, "build")):
-            if "faust" in fn and os.access(os.path.join(dp, "faust"), os.X_OK) and not dp.endswith("CMakeFiles"):
-                found = os.path.join(dp, "faust")
-                break
-    if found is None:
-        tarball = os.path.join(work, "faust-%s.tar.gz" % FAUST_VERSION)
-        if not os.path.exists(tarball):
-            r = run_logged(["curl", "-fL", "-sS", "-o", tarball, FAUST_URL], log)
-            if r.returncode != 0:
-                raise SystemExit("faust source download failed")
-        log.write("faust source sha256 %s\n" % sha256_file(tarball))
-        with tarfile.open(tarball) as t:
-            t.extractall(work, filter="data")
-        bdir = os.path.join(fdir, "build")
-        r = run_logged(["make", "-C", bdir, "cmake", "BACKENDS=regular.cmake", "TARGETS=regular.cmake"], log)
-        if r.returncode != 0:
-            raise SystemExit("faust cmake step failed")
-        r = run_logged(["make", "-C", bdir, "-j4", "faust"], log)
-        if r.returncode != 0:
-            raise SystemExit("faust compile failed")
-        for dp, _, fn in os.walk(bdir):
-            if "faust" in fn and os.access(os.path.join(dp, "faust"), os.X_OK) and not dp.endswith("CMakeFiles"):
-                found = os.path.join(dp, "faust")
-                break
-    if found is None:
-        raise SystemExit("faust binary not found after build")
-    v = run_logged([found, "-v"], log)
-    log.write("faust binary %s version line: %s\n" % (found, v.stdout.strip().splitlines()[0] if v.stdout.strip() else "?"))
-    return found, os.path.join(fdir, "architecture")
+def fetch(url, dest, log):
+    if run_logged(["curl", "-fL", "-sS", "--retry", "3", "-o", dest, url], log).returncode != 0:
+        raise SystemExit("download failed: " + url)
+    log.write("fetched %s sha256 %s\n" % (url, sha256_file(dest)))
 
 
-DRIVER_HEAD = "#include <faust/dsp/dsp.h>\n#include <faust/gui/UI.h>\n#include <faust/gui/meta.h>\n"
+def build_toolchain(work, log):
+    tc = os.path.join(work, "toolchain")
+    os.makedirs(tc, exist_ok=True)
+    src_tar = os.path.join(tc, "faust-src.tar.gz")
+    fetch(FAUST_URL, src_tar, log)
+    with tarfile.open(src_tar) as t:
+        members = [m for m in t.getmembers() if "/architecture/" in m.name]
+        t.extractall(tc, members=members, filter="data")
+    arch = os.path.join(tc, "faust-" + FAUST_VERSION, "architecture")
+    lib_zip = os.path.join(tc, "libfaust.zip")
+    fetch(LIBFAUST_URL, lib_zip, log)
+    libroot = os.path.join(tc, "faust-lib")
+    with zipfile.ZipFile(lib_zip) as z:
+        z.extractall(libroot)
+    libfaust = os.path.join(libroot, "lib", "libfaustwithllvm.a")
+    if not os.path.isfile(libfaust):
+        raise SystemExit("lib/libfaustwithllvm.a missing from the 2.85.9 release zip")
+    libs_tar = os.path.join(tc, "faustlibs.tar.gz")
+    fetch(FAUSTLIB_URL, libs_tar, log)
+    libdir = os.path.join(tc, "faust-libs")
+    os.makedirs(libdir, exist_ok=True)
+    with tarfile.open(libs_tar) as t:
+        members = []
+        for m in t.getmembers():
+            parts = m.name.split("/", 1)
+            if len(parts) == 2 and parts[1]:
+                m.name = parts[1]
+                members.append(m)
+        t.extractall(libdir, members=members, filter="data")
+    if not os.path.isfile(os.path.join(libdir, "stdfaust.lib")):
+        raise SystemExit("stdfaust.lib missing after the faustlibraries extract")
+    subprocess.run(["bash", "-c", "(apt-get update -qq && apt-get install -y -qq libncurses-dev) >/dev/null 2>&1"])
+    faust_cli = os.path.join(tc, "faust_cli")
+    cli_src = os.path.join(work, "faust_cli.cpp")
+    for recipe, cflags in (("plain", ["-O2", "-std=c++17"]), ("abi0", ["-O2", "-std=c++17", "-D_GLIBCXX_USE_CXX11_ABI=0"])):
+        cmd = ["g++"] + cflags + ["-I", arch, "-I", libroot, cli_src, libfaust,
+                                  "-lz", "-lpthread", "-ldl", "-lm", "-ltinfo", "-o", faust_cli]
+        if run_logged(cmd, log).returncode == 0:
+            log.write("faust_cli link recipe %s\n" % recipe)
+            break
+    else:
+        raise SystemExit("faust_cli did not link")
+    return faust_cli, arch, libdir
+
+
+def build_variant(name, text, faust_cli, arch, libdir, driver, gain, wav_paths, work):
+    vdir = os.path.join(work, "build", name)
+    tdir = os.path.join(work, "traces", name)
+    os.makedirs(os.path.join(vdir, "src"), exist_ok=True)
+    os.makedirs(tdir, exist_ok=True)
+    log = open(os.path.join(vdir, "build.log"), "w")
+    rec = {"name": name, "dsp_sha256": None, "error": None}
+    try:
+        with open(os.path.join(vdir, "src", "pitchtracker_ac.dsp"), "w") as f:
+            f.write(text)
+        r = run_logged([faust_cli, "-lang", "cpp"] + PINNED.split() + ["-I", libdir, "src/pitchtracker_ac.dsp", "-o", "dsp.cpp"], log, cwd=vdir)
+        if r.returncode != 0 or not os.path.isfile(os.path.join(vdir, "dsp.cpp")):
+            rec["error"] = "faust_cli rc=%d" % r.returncode
+            return rec
+        rec["dsp_sha256"] = sha256_file(os.path.join(vdir, "dsp.cpp"))
+        shutil.copy(driver, os.path.join(vdir, "render_cpp_driver.cpp"))
+        r = run_logged(["g++", "-O3", "-std=c++17", "-I", arch, "render_cpp_driver.cpp", "-o", "render_cpp"], log, cwd=vdir)
+        if r.returncode != 0:
+            rec["error"] = "g++ rc=%d" % r.returncode
+            return rec
+        t0 = time.time()
+        r = run_logged(["./render_cpp", name, str(gain), os.path.join(tdir, "out")] + wav_paths, log, cwd=vdir)
+        rec["render_secs"] = round(time.time() - t0, 1)
+        if r.returncode != 0:
+            rec["error"] = "render rc=%d" % r.returncode
+        for f in os.listdir(tdir):
+            if f.endswith(".npy"):
+                os.remove(os.path.join(tdir, f))
+        return rec
+    finally:
+        log.close()
 
 
 def run(spec_path):
@@ -146,46 +201,42 @@ def run(spec_path):
     root, work = spec["input_root"], spec["work"]
     os.makedirs(work, exist_ok=True)
     log = open(os.path.join(work, "run.log"), "a")
-    faust, arch = build_faust(work, log)
-    libdir = os.path.join(root, "faustlibraries")
-    driver_main = open(os.path.join(root, "driver_main.cpp")).read()
-    cdir = os.path.join(work, "cpp")
-    bdir = os.path.join(work, "bin")
-    os.makedirs(cdir, exist_ok=True)
-    os.makedirs(bdir, exist_ok=True)
-    wavs = wav_names(spec)
-    srcs = {}
+    shutil.copy(os.path.join(root, "faust_cli.cpp"), work)
+    faust_cli, arch, libdir = build_toolchain(work, log)
+    driver = os.path.join(root, "render_cpp_driver.cpp")
+    wav_paths = [os.path.join(root, "wav", w + ".wav") for w in wav_names(spec)]
+    texts, jobs = {}, []
     for v in spec["variants"]:
-        if v["dsp"] not in srcs:
-            srcs[v["dsp"]] = open(os.path.join(root, "dsp", v["dsp"] + ".dsp")).read()
-        text = srcs[v["dsp"]]
+        if v["dsp"] not in texts:
+            texts[v["dsp"]] = open(os.path.join(root, "dsp", v["dsp"] + ".dsp")).read()
+        text = texts[v["dsp"]]
         for old, new in v.get("subs", []):
             cnt = text.count(old)
             if cnt != 1:
                 raise SystemExit("%s: substitution matched %d times: %r" % (v["name"], cnt, old[:60]))
             text = text.replace(old, new)
-        dsp_path = os.path.join(cdir, v["name"] + ".dsp")
-        with open(dsp_path, "w") as f:
-            f.write(text)
-        cpp_path = os.path.join(cdir, v["name"] + ".cpp")
-        t0 = time.time()
-        flags = PINNED.split() if v["flags"] == "pinned" else []
-        r = run_logged([faust, "-lang", "cpp"] + flags + ["-I", libdir, "-o", cpp_path, dsp_path], log)
-        if r.returncode != 0:
-            print("%s faust rc=%d" % (v["name"], r.returncode), flush=True)
-            continue
-        drv_path = os.path.join(cdir, v["name"] + "_driver.cpp")
-        with open(drv_path, "w") as f:
-            f.write(DRIVER_HEAD + '#include "%s.cpp"\n' % v["name"] + driver_main)
-        exe = os.path.join(bdir, "render_" + v["name"])
-        r = run_logged(["g++", "-O3", "-std=c++17", "-I", arch, "-o", exe, drv_path], log)
-        if r.returncode != 0:
-            print("%s g++ rc=%d" % (v["name"], r.returncode), flush=True)
-            continue
-        tdir = os.path.join(work, "traces", v["name"])
-        os.makedirs(tdir, exist_ok=True)
-        r = run_logged([exe, str(spec["gain"]), tdir] + [os.path.join(root, "wav", w + ".wav") for w in wavs], log)
-        print("%s faust+g+++render rc=%d secs=%.1f" % (v["name"], r.returncode, time.time() - t0), flush=True)
+        jobs.append((v["name"], text, v["dsp"] == "A_e557252" and not v.get("subs")))
+    records = []
+    for name, text, is_shipped in (j for j in jobs if j[2] or j[0] == "baseline"):
+        rec = build_variant(name, text, faust_cli, arch, libdir, driver, spec["gain"], wav_paths, work)
+        records.append(rec)
+        log.write("%s\n" % json.dumps(rec))
+        log.flush()
+        if rec["dsp_sha256"] != BASELINE_DSP_SHA256:
+            raise SystemExit("shipped dsp.cpp sha256 %s != %s; no render started" % (rec["dsp_sha256"], BASELINE_DSP_SHA256))
+    rest = [j for j in jobs if not (j[2] or j[0] == "baseline")]
+    workers = int(os.environ.get("SWEEP_WORKERS", "2"))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(build_variant, name, text, faust_cli, arch, libdir, driver, spec["gain"], wav_paths, work)
+                for name, text, _ in rest]
+        for fut in concurrent.futures.as_completed(futs):
+            rec = fut.result()
+            records.append(rec)
+            log.write("%s\n" % json.dumps(rec))
+            log.flush()
+            print("%s dsp=%s error=%s secs=%s" % (rec["name"], rec["dsp_sha256"], rec["error"], rec.get("render_secs")), flush=True)
+    with open(os.path.join(work, "build_manifest.json"), "w") as f:
+        json.dump(records, f, indent=1)
     log.close()
     summarize(spec_path)
 
@@ -193,7 +244,7 @@ def run(spec_path):
 def settled_map(tdir, wavs):
     out = {}
     for w in wavs:
-        p = os.path.join(tdir, w + ".txt")
+        p = trace_path(tdir, w)
         out[w] = settled(read_trace(p)) if os.path.exists(p) else None
     return out
 
@@ -248,13 +299,18 @@ def summarize(spec_path):
         w: sha256_file(os.path.join(root, "wav", w + ".wav"))
         for w in SINES if os.path.exists(os.path.join(root, "wav", w + ".wav"))
     }
-    out["driver_backend"] = "faust-cpp %s %s, g++ -O3 -std=c++17, no -mcpu" % (FAUST_VERSION, PINNED)
+    manifest_path = os.path.join(work, "build_manifest.json")
+    records = json.load(open(manifest_path)) if os.path.exists(manifest_path) else []
+    out["dsp_sha256"] = {r["name"]: r.get("dsp_sha256") for r in records}
+    out["build_errors"] = [r for r in records if r.get("error")]
+    out["driver_backend"] = ("faust_cli %s (libfaustwithllvm.a) %s, render_cpp_driver.cpp, g++ -O3 -std=c++17, no -mcpu"
+                             % (FAUST_VERSION, PINNED))
     if spec["report"] == "flag":
         for a, b in spec["pairs"]:
             lines.append("PAIR %s vs %s (block-end Hz, exact float match)" % (a, b))
             for w in spec["wavs"]:
-                ra = read_trace(os.path.join(tr, a, w + ".txt"))
-                rb = read_trace(os.path.join(tr, b, w + ".txt"))
+                ra = read_trace(trace_path(os.path.join(tr, a), w))
+                rb = read_trace(trace_path(os.path.join(tr, b), w))
                 n = min(len(ra), len(rb))
                 mism = sum(1 for i in range(n) if ra[i][1] != rb[i][1])
                 mx = max((abs(ra[i][1] - rb[i][1]) for i in range(n)), default=0.0)
@@ -269,8 +325,8 @@ def summarize(spec_path):
         lines.append("LOWFREQ recheck, gain %s, target = exact generated sine frequency" % spec["gain"])
         for w in spec["wavs"]:
             f = SINES[w]
-            sa = settled(read_trace(os.path.join(tr, "A", w + ".txt")))
-            sb = settled(read_trace(os.path.join(tr, "B", w + ".txt")))
+            sa = settled(read_trace(trace_path(os.path.join(tr, "A"), w)))
+            sb = settled(read_trace(trace_path(os.path.join(tr, "B"), w)))
             ca, cb = cents(sa, f), cents(sb, f)
             bma = 1200.0 * math.log2(sb / sa)
             lines.append("  %-12s A settled %.6f c %+.3f | B settled %.6f c %+.3f | B-A %+.3f c | |cA|-|cB| %+.3f c"
@@ -281,8 +337,13 @@ def summarize(spec_path):
     elif spec["report"] == "sweep":
         base_vals = settled_map(os.path.join(tr, "baseline"), wavs)
         results = []
+        out["trace_sha256"] = {}
         for v in spec["variants"]:
-            vals = settled_map(os.path.join(tr, v["name"]), wavs)
+            vdir = os.path.join(tr, v["name"])
+            vals = settled_map(vdir, wavs)
+            out["trace_sha256"][v["name"]] = {
+                w: (sha256_file(trace_path(vdir, w)) if os.path.exists(trace_path(vdir, w)) else None) for w in wavs
+            }
             m = sweep_metrics(vals, base_vals)
             m.update({"name": v["name"], "axis": v.get("axis", "baseline"), "path": v.get("path", "-"),
                       "value": v.get("value", "-"), "per_file": vals,
@@ -307,6 +368,8 @@ def summarize(spec_path):
         lines.append("ranked by medAbsC: " + " > ".join("%s(%s)" % (m["name"], fmt(m["med"])) for m in ranked))
         out["sweep"] = [{k: v for k, v in m.items() if k != "per_file"} for m in results]
         out["base_settled"] = base_vals
+    if out["build_errors"]:
+        lines.append("BUILD/RENDER FAILURES: " + "; ".join("%s %s" % (r["name"], r["error"]) for r in out["build_errors"]))
     text = "\n".join(lines) + "\n"
     with open(os.path.join(work, "results.txt"), "w") as f:
         f.write(text)
@@ -340,7 +403,7 @@ def write_kernel(spec_path, kdir, slug, title):
         "found, zips, sweep, seen = None, [], None, []\n"
         "for dp, dn, fn in os.walk('/kaggle/input'):\n"
         "    seen.append(dp + ' dirs=' + ','.join(sorted(dn)[:15]) + ' files=' + ','.join(sorted(fn)[:15]))\n"
-        "    if found is None and {'dsp', 'wav', 'faustlibraries'} <= set(dn):\n"
+        "    if found is None and {'dsp', 'wav'} <= set(dn):\n"
         "        found = dp\n"
         "    if 'inputs.zip' in fn:\n"
         "        zips.append(os.path.join(dp, 'inputs.zip'))\n"
@@ -355,10 +418,11 @@ def write_kernel(spec_path, kdir, slug, title):
         "    zipfile.ZipFile(zips[0]).extractall(DST)\n"
         "else:\n"
         "    raise SystemExit('dataset inputs not found')\n"
-        "if not os.path.exists(os.path.join(DST, 'driver_main.cpp')) and sweep:\n"
-        "    shutil.copy(os.path.join(os.path.dirname(sweep), 'driver_main.cpp'), DST)\n"
-        "if not os.path.exists(os.path.join(DST, 'driver_main.cpp')):\n"
-        "    raise SystemExit('driver_main.cpp missing from inputs')\n"
+        "for name in ('render_cpp_driver.cpp', 'faust_cli.cpp'):\n"
+        "    if not os.path.exists(os.path.join(DST, name)) and sweep:\n"
+        "        shutil.copy(os.path.join(os.path.dirname(sweep), name), DST)\n"
+        "    if not os.path.exists(os.path.join(DST, name)):\n"
+        "        raise SystemExit(name + ' missing from inputs')\n"
         "SPEC['input_root'] = DST\n"
         "path = '/kaggle/working/spec.json'\n"
         "json.dump(SPEC, open(path, 'w'))\n"
@@ -368,15 +432,13 @@ def write_kernel(spec_path, kdir, slug, title):
         f.write(code)
 
 
-def stage(dest, libs_dir, wav_dir, dsp_dir, here):
+def stage(dest, wav_dir, dsp_dir, here):
     os.makedirs(dest, exist_ok=True)
-    shutil.copy(os.path.join(here, "sweep.py"), dest)
-    shutil.copy(os.path.join(here, "driver_main.cpp"), dest)
+    for name in ("sweep.py", "faust_cli.cpp", "render_cpp_driver.cpp"):
+        shutil.copy(os.path.join(here, name), dest)
     shutil.copytree(dsp_dir, os.path.join(dest, "dsp"), dirs_exist_ok=True)
     shutil.copytree(wav_dir, os.path.join(dest, "wav"), dirs_exist_ok=True)
     make_sines(os.path.join(dest, "wav"))
-    shutil.copytree(libs_dir, os.path.join(dest, "faustlibraries"), dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns("doc", "tests", "docs", ".git*"))
     meta = {"title": "tracker sweep inputs", "id": "heclgang/tracker-sweep-inputs",
             "licenses": [{"name": "CC0-1.0"}]}
     with open(os.path.join(dest, "dataset-metadata.json"), "w") as f:
@@ -385,8 +447,9 @@ def stage(dest, libs_dir, wav_dir, dsp_dir, here):
 
 def zip_inputs(stage_dir, out_zip):
     with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(os.path.join(stage_dir, "driver_main.cpp"), "driver_main.cpp")
-        for sub in ("dsp", "wav", "faustlibraries"):
+        for name in ("faust_cli.cpp", "render_cpp_driver.cpp"):
+            z.write(os.path.join(stage_dir, name), name)
+        for sub in ("dsp", "wav"):
             for dp, _, fn in os.walk(os.path.join(stage_dir, sub)):
                 for f in fn:
                     full = os.path.join(dp, f)
@@ -404,7 +467,7 @@ def main(argv):
     elif cmd == "kernel":
         write_kernel(argv[2], argv[3], argv[4], argv[5])
     elif cmd == "stage":
-        stage(argv[2], argv[3], argv[4], argv[5], os.path.dirname(os.path.abspath(__file__)))
+        stage(argv[2], argv[3], argv[4], os.path.dirname(os.path.abspath(__file__)))
     elif cmd == "zip":
         zip_inputs(argv[2], argv[3])
     elif cmd == "subs":
