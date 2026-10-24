@@ -67,3 +67,11 @@ timing-far-extend-phrase-cap: a C++ clamp in mc-420 src/control/apc_grid.cpp aro
 C++ target computation and the device.
 The delayverb stage (effects_runtime_pre.dsp, effects_runtime_post.dsp, and the aloop_pre.dsp composition).
 The shared corpus (tools/corpus/fetch_corpus.py). All inputs are synthetic and generated in the harness.
+
+AMENDMENT 1 - backend (dated 2026-10-24, committed before any render on this route)
+Peer 420 decided that verdicts come from the C++ backend with the pinned flags. The LLVM JIT route written above (createDSPFactoryFromFile) is comparison only and produces no verdicts. Kernel heclgang/loop-witness-run version 2 did not compile anything: its guard stopped on the sha, which the correction in commit cede992b fixed.
+Compile route for verdicts: libfaust 2.85.9 from the release zip libfaust-ubuntu-x86_64.zip. faust_cli is the faust 2.85.9 entry point, createFactory from compiler/main.cpp, linked against lib/libfaustwithllvm.a with the plain recipe (g++ -O2 -std=c++17, -lz -lpthread -ldl -lm -ltinfo). It runs as `faust_cli -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0 -I <faustlibraries> loop.dsp -o dsp.cpp`. The generated class is mydsp.
+Faust libraries: github grame-cncm/faustlibraries at 78a72d4998dec43e20492ef9b78d1a785b3dc864. Architecture headers: faust 2.85.9 source tarball, architecture/.
+Harness build: g++ -O3 -std=c++17 -I <faust 2.85.9 architecture> loop_witness.cpp, with no -mcpu. The harness includes dsp.cpp and drives mydsp through MapUI with the same control paths and per-sample scheduling as above.
+The flag-check route's render_cpp driver is a wav renderer with no control inputs, so the four checks cannot use it. The harness uses the same generated class and compile flags.
+Thresholds, scenarios, timelines, expected-loop definition, and criteria are unchanged.
