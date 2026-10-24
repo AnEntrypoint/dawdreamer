@@ -1,0 +1,117 @@
+{
+ "name": "sweep-b",
+ "input_root": "/kaggle/input/tracker-sweep-inputs",
+ "work": "/kaggle/working",
+ "gain": 1.0,
+ "wavs": "all",
+ "report": "sweep",
+ "variants": [
+  {
+   "name": "baseline",
+   "dsp": "A_e557252",
+   "subs": [],
+   "flags": "pinned",
+   "axis": "baseline",
+   "path": "-",
+   "value": "shipped"
+  },
+  {
+   "name": "refine_0.005",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "    energyTau = 0.01;",
+     "    energyTau = 0.005;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "refine",
+   "path": "refine",
+   "value": "0.005"
+  },
+  {
+   "name": "refine_0.02",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "    energyTau = 0.01;",
+     "    energyTau = 0.02;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "refine",
+   "path": "refine",
+   "value": "0.02"
+  },
+  {
+   "name": "refine_0.04",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "    energyTau = 0.01;",
+     "    energyTau = 0.04;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "refine",
+   "path": "refine",
+   "value": "0.04"
+  },
+  {
+   "name": "spread_1",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "refineSpreadK(L) = int(refineSpreadRatio * float(L) + 0.5) : max(refineSpreadFloor) : min(refineSpreadMax);",
+     "refineSpreadK(L) = 1;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "spread",
+   "path": "-",
+   "value": "1"
+  },
+  {
+   "name": "spread_4",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "refineSpreadK(L) = int(refineSpreadRatio * float(L) + 0.5) : max(refineSpreadFloor) : min(refineSpreadMax);",
+     "refineSpreadK(L) = 4;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "spread",
+   "path": "-",
+   "value": "4"
+  },
+  {
+   "name": "spread_8",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "refineSpreadK(L) = int(refineSpreadRatio * float(L) + 0.5) : max(refineSpreadFloor) : min(refineSpreadMax);",
+     "refineSpreadK(L) = 8;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "spread",
+   "path": "-",
+   "value": "8"
+  },
+  {
+   "name": "spread_16",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "refineSpreadK(L) = int(refineSpreadRatio * float(L) + 0.5) : max(refineSpreadFloor) : min(refineSpreadMax);",
+     "refineSpreadK(L) = 16;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "spread",
+   "path": "-",
+   "value": "16"
+  }
+ ]
+}

@@ -1,0 +1,103 @@
+{
+ "name": "sweep-c",
+ "input_root": "/kaggle/input/tracker-sweep-inputs",
+ "work": "/kaggle/working",
+ "gain": 1.0,
+ "wavs": "all",
+ "report": "sweep",
+ "variants": [
+  {
+   "name": "baseline",
+   "dsp": "A_e557252",
+   "subs": [],
+   "flags": "pinned",
+   "axis": "baseline",
+   "path": "-",
+   "value": "shipped"
+  },
+  {
+   "name": "margin_0.002",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "subharmDominanceMargin = 0.004;",
+     "subharmDominanceMargin = 0.002;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "margin",
+   "path": "-",
+   "value": "0.002"
+  },
+  {
+   "name": "margin_0.008",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "subharmDominanceMargin = 0.004;",
+     "subharmDominanceMargin = 0.008;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "margin",
+   "path": "-",
+   "value": "0.008"
+  },
+  {
+   "name": "onset_15.0",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "onsetHoldMs = 35.0;",
+     "onsetHoldMs = 15.0;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "onset",
+   "path": "-",
+   "value": "15.0"
+  },
+  {
+   "name": "onset_60.0",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "onsetHoldMs = 35.0;",
+     "onsetHoldMs = 60.0;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "onset",
+   "path": "-",
+   "value": "60.0"
+  },
+  {
+   "name": "gate_0.75",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "    confident = finalConfidence >= corrThresh;",
+     "    confident = finalConfidence >= 0.75;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "gate",
+   "path": "-",
+   "value": "0.75"
+  },
+  {
+   "name": "gate_0.92",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "    confident = finalConfidence >= corrThresh;",
+     "    confident = finalConfidence >= 0.92;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "gate",
+   "path": "-",
+   "value": "0.92"
+  }
+ ]
+}

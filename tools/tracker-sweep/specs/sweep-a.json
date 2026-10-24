@@ -1,0 +1,89 @@
+{
+ "name": "sweep-a",
+ "input_root": "/kaggle/input/tracker-sweep-inputs",
+ "work": "/kaggle/working",
+ "gain": 1.0,
+ "wavs": "all",
+ "report": "sweep",
+ "variants": [
+  {
+   "name": "baseline",
+   "dsp": "A_e557252",
+   "subs": [],
+   "flags": "pinned",
+   "axis": "baseline",
+   "path": "-",
+   "value": "shipped"
+  },
+  {
+   "name": "gate085_check",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "    confident = finalConfidence >= corrThresh;",
+     "    confident = finalConfidence >= 0.85;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "gate",
+   "path": "-",
+   "value": "0.85"
+  },
+  {
+   "name": "coarse_0.005",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "tauFor(freqHz) = ba.if(freqHz >= 575.0, 0.02,\n                  0.01);",
+     "tauFor(freqHz) = 0.005;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "coarse",
+   "path": "coarse",
+   "value": "0.005"
+  },
+  {
+   "name": "coarse_0.01",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "tauFor(freqHz) = ba.if(freqHz >= 575.0, 0.02,\n                  0.01);",
+     "tauFor(freqHz) = 0.01;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "coarse",
+   "path": "coarse",
+   "value": "0.01"
+  },
+  {
+   "name": "coarse_0.02",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "tauFor(freqHz) = ba.if(freqHz >= 575.0, 0.02,\n                  0.01);",
+     "tauFor(freqHz) = 0.02;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "coarse",
+   "path": "coarse",
+   "value": "0.02"
+  },
+  {
+   "name": "coarse_0.04",
+   "dsp": "A_e557252",
+   "subs": [
+    [
+     "tauFor(freqHz) = ba.if(freqHz >= 575.0, 0.02,\n                  0.01);",
+     "tauFor(freqHz) = 0.04;"
+    ]
+   ],
+   "flags": "pinned",
+   "axis": "coarse",
+   "path": "coarse",
+   "value": "0.04"
+  }
+ ]
+}
