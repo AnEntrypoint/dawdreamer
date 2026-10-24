@@ -1,0 +1,69 @@
+loop-witness pre-registration for the mc-420 loop-engine rows.
+Written and committed before any render. Thresholds below are fixed; they are not changed after numbers are seen.
+
+DEVICE UNDER TEST
+File: /config/workspace/mc-420/dsp/loop.dsp (mc-420 HEAD 97a1dee9; file clean against HEAD when this was written)
+sha256: 1be68dc68d3ccb1e6aa37f17e08f9a8d7a219e97e3007b9d4c25f95c57187c8b
+process: 10 inputs (in, prevFiltIn, clearAll, effSpeed, manualSpeed, masterPhase, masterLen, sidechainEnv, recordedBeats, foldNow); 22 outputs (in, loopSum, then 20 per-looper outputs). looper00 is output index 2.
+Reading of the brief: loop.dsp contains no aloop_pre, aloop_post or delayverb. The composition dsp/aloop_pre.dsp wraps loop.dsp and then effects_runtime_pre.dsp, where delayverb lives. The four checks are tested on loop.dsp alone. The delayverb stage is not tested.
+
+CONTROLS (driven through the Faust UI full paths, written per sample)
+/looper00/rec button, /looper00/finishreq button, /looper00/finishtarget slider (samples), /looper00/latencybias slider (samples), /looper00/play checkbox (set to 1), /looper00/vol (1.0), /looper00/erase (0), /looper00/sidechainsrc (0).
+Meters read back: /looper00/writeidx and /looper00/wraplen.
+Signal inputs: prevFiltIn = x[n] (fixed-seed LCG, uniform float32 in [-0.5, 0.5)); masterPhase = n mod M; masterLen = M; recordedBeats = B; foldNow = F; in = 0; clearAll = 0; sidechainEnv = 0; effSpeed = 1; manualSpeed = 1.
+Compile: libfaust 2.85.9 linux x86_64 via thirdparty/libfaust/download_libfaust.py. createDSPFactoryFromFile with -I $FAUST_LIBRARY_DIR and flags -vec -fun -dfs -vs 32 -nvi -ct 0, opt level -1, as tools/render-gate/render_gate.cpp does.
+Block size 1: every control changes at an exact sample index.
+
+TIMELINE
+SR 48000. BEAT = 24000 samples (120 BPM). L = take length in samples. t0 = 1000 is the arm sample. n is the sample index.
+rec = 1 on [t0, relAt). finishreq = 1 on the single sample finAt. finishtarget = L unless stated.
+Expected loop for a take of length L: E(t) = x[t0 + ((t - t0) mod L)].
+Window W(L) = [t0+L+1, t0+4L+1): three full periods after recording stops.
+
+SCENARIOS (the DSP depends on master length, so every check names its scenario)
+A: session master, M = 6 beats = 144000 samples, B = recordedBeats = 6.
+B: self master, M = L, B = L/24000.
+P: phrase master, M = 16 beats = 384000 samples, B = 16.
+
+CHECK 1 - seamless wrap
+Takes N in {1, 2, 3.5, 6} beats, so L = 24000, 48000, 84000, 144000. Scenarios A and B. finAt = t0 + floor(L/2), relAt = finAt + 1, finishtarget = L. Run length t0 + 4L + 16.
+Pass per (scenario, take), both required:
+(a) zero mismatches between y(t) and E(t) over W. Exact float32 equality; no tolerance.
+(b) wrap step rule: for every wrap sample w in W (w with (w - t0) mod L = 0), |y(w) - y(w-1)| <= max |y(t) - y(t-1)| over the other samples t in W with t > W.start.
+CHECK 1 PASS iff all 8 (scenario, take) pairs pass.
+Reading: "sample-exact" means zero mismatches. "Stop point" is the playback wrap at the take length. If the DSP wraps at any other length (for example grid snapping), the samples disagree and the pair FAILS. Effective wraplen min and max over W are reported as diagnostics, not as pass criteria.
+
+CHECK 2 - early press keeps recording to target
+L = 2 beats (48000), scenario A, finishtarget = L, early press at E in {12000, 47999}, finAt = t0 + E, rec held on [t0, finAt+1). Run length t0 + L + 10.
+Criterion: writeidx(t) == min(t - t0, L) for every t in [t0, t0+L+2], zero mismatches. Reading: the write index advances by 1 each sample while widx < finishtarget, and holds at L afterwards.
+Control (harness validity only): same take with no finishreq and rec held on [t0, t0+E+1). Criterion: writeidx is constant on [t0+E+2, end). If the control fails, check 2 is INCONCLUSIVE, not PASS.
+CHECK 2 PASS iff both E values pass the criterion and the control is valid.
+
+CHECK 3 - read offset latencybias = N
+L = 2 beats (48000). Scenarios A (M = 144000, B = 6) and B (M = 48000, B = 2). finAt = t0 + L/2, relAt = finAt + 1, finishtarget = L. Run length t0 + 4L + 512.
+Reference run R at latencybias 0. Test run O at latencybias N, N in {64, 259}.
+Reading of "shift by N": a positive latencybias advances the read position, so the expected output is O(t) = R(t + N), with R taken periodically at period L. The sign is fixed: O(t) = R(t - N) is a FAIL.
+Pass per (scenario, N), all required:
+(a) zero mismatches between O(t) and R(t+N) over W.
+(b) O(t) == R(t) for every t < t0 + L + 1 (recording region; nothing else changes).
+(c) writeidx and wraplen identical between O and R for every t in the run.
+CHECK 3 PASS iff all 4 (scenario, N) pairs pass.
+
+CHECK 4 - fold ladder
+Phrase P = 16 beats (scenario P). Takes L = P/2^k for k in {1, 2, 3, 4}, so 8, 4, 2, 1 beats. foldNow F in {0, 1}, held constant for the run. finAt = t0 + L/2, relAt = finAt + 1, finishtarget = L. Run length t0 + 4L + 16.
+Pass per (k, F), both required:
+(a) wraplen(t) == L for every t in W.
+(b) zero mismatches between y(t) and E(t) over W.
+CHECK 4 PASS iff all 8 (k, F) pairs pass.
+
+VERDICT RULES
+PASS only if every criterion of the check holds with the exact numbers above.
+FAIL if any criterion fails. No tolerance: any nonzero mismatch count fails.
+INCONCLUSIVE if harness validation fails: a control path is missing, the loop.dsp sha differs, the input or output counts differ, or the check 2 control is invalid.
+Every run is reported as measured. Failing rows are reported, not dropped.
+
+OUT OF SCOPE (not tested here)
+timing-far-extend-phrase-cap: a C++ clamp in mc-420 src/control/apc_grid.cpp around lines 317-328. Not tested; this is a DSP-only witness.
+C++ target computation and the device.
+The delayverb stage (effects_runtime_pre.dsp, effects_runtime_post.dsp, and the aloop_pre.dsp composition).
+The shared corpus (tools/corpus/fetch_corpus.py). All inputs are synthetic and generated in the harness.
