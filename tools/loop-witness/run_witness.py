@@ -16,6 +16,8 @@ def sh(cmd, cwd=None, env=None):
 
 def find_input():
     for root, _dirs, files in os.walk("/kaggle/input"):
+        if "loop.dsp" in files and "loop_witness.cpp" in files:
+            return root
         if "inputs.tar.gz" in files:
             return os.path.join(root, "inputs.tar.gz")
     return None
@@ -29,15 +31,18 @@ def emit(lines):
 
 
 def main():
-    archive = find_input()
-    if archive is None:
-        emit(["INCONCLUSIVE no inputs.tar.gz under /kaggle/input"])
+    src = find_input()
+    if src is None:
+        emit(["INCONCLUSIVE no loop.dsp, loop_witness.cpp or inputs.tar.gz under /kaggle/input"])
         return 1
     dd = os.path.join(WORK, "dd")
     shutil.rmtree(dd, ignore_errors=True)
-    os.makedirs(dd)
-    with tarfile.open(archive, "r:gz") as t:
-        t.extractall(dd)
+    if src.endswith(".tar.gz"):
+        os.makedirs(dd)
+        with tarfile.open(src, "r:gz") as t:
+            t.extractall(dd)
+    else:
+        shutil.copytree(src, dd)
 
     with open(os.path.join(dd, "loop.dsp"), "rb") as f:
         digest = hashlib.sha256(f.read()).hexdigest()
