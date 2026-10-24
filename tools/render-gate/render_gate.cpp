@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
   if (argc < 5) { fprintf(stderr, "usage: render_multi dsp gain outprefix wav...\n"); return 2; }
   const char* dspPath = argv[1];
   float gain = (float)atof(argv[2]); std::string pre = argv[3];
-  std::vector<const char*> flags;
+  std::vector<const char*> flags = {"-vec", "-fun", "-dfs", "-vs", "32", "-nvi", "-ct", "0"};
   const char* libDir = std::getenv("FAUST_LIBRARY_DIR");
   if (libDir != nullptr && *libDir != '\0') { flags.push_back("-I"); flags.push_back(libDir); }
   std::string err;
