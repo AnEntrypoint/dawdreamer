@@ -1,0 +1,28 @@
+{
+ "name": "lowfreq",
+ "input_root": "/kaggle/input/tracker-sweep-inputs",
+ "work": "/kaggle/working",
+ "gain": 1.0,
+ "wavs": ["sine_65.55", "sine_69.75"],
+ "report": "lowfreq",
+ "variants": [
+  {
+   "name": "A",
+   "dsp": "A_e557252",
+   "subs": [],
+   "flags": "pinned",
+   "axis": "lowfreq",
+   "path": "refine",
+   "value": "0.01"
+  },
+  {
+   "name": "B",
+   "dsp": "B_98ed906",
+   "subs": [],
+   "flags": "pinned",
+   "axis": "lowfreq",
+   "path": "refine",
+   "value": "0.02"
+  }
+ ]
+}

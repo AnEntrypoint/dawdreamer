@@ -374,6 +374,7 @@ def stage(dest, libs_dir, wav_dir, dsp_dir, here):
     shutil.copy(os.path.join(here, "driver_main.cpp"), dest)
     shutil.copytree(dsp_dir, os.path.join(dest, "dsp"), dirs_exist_ok=True)
     shutil.copytree(wav_dir, os.path.join(dest, "wav"), dirs_exist_ok=True)
+    make_sines(os.path.join(dest, "wav"))
     shutil.copytree(libs_dir, os.path.join(dest, "faustlibraries"), dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("doc", "tests", "docs", ".git*"))
     meta = {"title": "tracker sweep inputs", "id": "heclgang/tracker-sweep-inputs",
