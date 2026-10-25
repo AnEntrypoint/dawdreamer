@@ -16,7 +16,9 @@ FAUST = "2.85.9"
 FAUSTLIB_SHA = "78a72d4998dec43e20492ef9b78d1a785b3dc864"
 DSP_SHA = "cea5e4f00533f0364bfd7eb9f62e851029ee9a1301b4ba8566d0c5dc7f4d67e0"
 GAIN_TEXT = "0.00707945784384138"
-DATA = "/kaggle/input/datasets/heclgang/mc420-dawdreamer-gate-corpus"
+CORPUS = __CORPUS__
+SINE_GAIN_TEXT = "__SINE_GAIN__"
+DATA ="/kaggle/input/datasets/heclgang/mc420-dawdreamer-gate-corpus"
 W = "/tmp/corpus-gain-build"
 OUTD = os.path.join(W, "out")
 SOURCES = __SOURCES__
@@ -62,15 +64,17 @@ def main():
         raise SystemExit("shipped DSP sha mismatch")
     log("META dsp_sha256", DSP_SHA, "match")
 
-    rc, o, e = sh([sys.executable, "-I", os.path.join(W, "fetch_corpus.py"), "--verify", DATA])
-    log("META corpus_verify_rc", rc, (o.strip().splitlines() or [""])[-1])
-    if rc != 0:
-        raise SystemExit("corpus verify failed: " + o[-800:] + e[-400:])
-    corpus = sorted(glob.glob(os.path.join(DATA, "mc420", "*.wav")))
-    if len(corpus) != 34:
-        raise SystemExit("expected 34 corpus wavs, found %d" % len(corpus))
-    for p in corpus:
-        log("META input_sha256 corpus", os.path.basename(p)[:-4], sha256(p))
+    corpus = []
+    if CORPUS:
+        rc, o, e = sh([sys.executable, "-I", os.path.join(W, "fetch_corpus.py"), "--verify", DATA])
+        log("META corpus_verify_rc", rc, (o.strip().splitlines() or [""])[-1])
+        if rc != 0:
+            raise SystemExit("corpus verify failed: " + o[-800:] + e[-400:])
+        corpus = sorted(glob.glob(os.path.join(DATA, "mc420", "*.wav")))
+        if len(corpus) != 34:
+            raise SystemExit("expected 34 corpus wavs, found %d" % len(corpus))
+        for p in corpus:
+            log("META input_sha256 corpus", os.path.basename(p)[:-4], sha256(p))
 
     sines_dir = os.path.join(W, "sines")
     rc, o, e = sh([sys.executable, "-I", os.path.join(W, "make_sines.py"), sines_dir])
@@ -137,10 +141,11 @@ def main():
     if not built:
         raise SystemExit("render_cpp did not build: " + e[-600:])
 
-    corpus_rc, o, e = sh(["./render_cpp", "pitchtracker_ac.dsp", GAIN_TEXT, os.path.join(OUTD, "c")] + corpus, cwd=build)
-    log("META render_corpus rc", corpus_rc)
-    log(e.strip()[-2000:])
-    sine_rc, o, e = sh(["./render_cpp", "pitchtracker_ac.dsp", "1.0", os.path.join(OUTD, "s")] + sines, cwd=build)
+    if CORPUS:
+        corpus_rc, o, e = sh(["./render_cpp", "pitchtracker_ac.dsp", GAIN_TEXT, os.path.join(OUTD, "c")] + corpus, cwd=build)
+        log("META render_corpus rc", corpus_rc)
+        log(e.strip()[-2000:])
+    sine_rc, o, e = sh(["./render_cpp", "pitchtracker_ac.dsp", SINE_GAIN_TEXT, os.path.join(OUTD, "s")] + sines, cwd=build)
     log("META render_sines rc", sine_rc)
     log(e.strip()[-1000:])
     for f in os.listdir(OUTD):
@@ -149,9 +154,11 @@ def main():
 
     sys.path.insert(0, W)
     import analyse
-    meta = ["META dsp_sha256 " + DSP_SHA, "META faust_cli_recipe " + chosen, "META gain_corpus " + GAIN_TEXT, "META gain_sines 1.0"]
-    analyse.run("/kaggle/working/results.txt", OUTD,
-                [("corpus", float(GAIN_TEXT), "c", corpus), ("sine", 1.0, "s", sines)], meta)
+    meta = ["META dsp_sha256 " + DSP_SHA, "META faust_cli_recipe " + chosen, "META gain_corpus " + GAIN_TEXT, "META gain_sines " + SINE_GAIN_TEXT]
+    groups = [("sine", float(SINE_GAIN_TEXT), "s", sines)]
+    if CORPUS:
+        groups.insert(0, ("corpus", float(GAIN_TEXT), "c", corpus))
+    analyse.run("/kaggle/working/results.txt", OUTD, groups, meta)
     shutil.copytree(OUTD, "/kaggle/working/traces", ignore=shutil.ignore_patterns("*.npy"), dirs_exist_ok=True)
 
 
@@ -164,7 +171,7 @@ def read_bytes(path):
         return f.read()
 
 
-def main(dsp_path, sines_path, route_dir, outdir):
+def main(dsp_path, sines_path, route_dir, outdir, slug=SLUG, sine_gain="1.0", corpus=True):
     dsp = read_bytes(dsp_path)
     if hashlib.sha256(dsp).hexdigest() != DSP_SHA:
         raise SystemExit("shipped sha mismatch")
@@ -176,7 +183,7 @@ def main(dsp_path, sines_path, route_dir, outdir):
         "fetch_corpus.py": read_bytes(os.path.join(REPO, "tools", "corpus", "fetch_corpus.py")).decode("utf-8"),
         "analyse.py": read_bytes(os.path.join(HERE, "analyse.py")).decode("utf-8"),
     }
-    code = TEMPLATE.replace("__SOURCES__", json.dumps(sources))
+    code = TEMPLATE.replace("__SOURCES__", json.dumps(sources)).replace("__CORPUS__", repr(bool(corpus))).replace("__SINE_GAIN__", sine_gain)
     os.makedirs(outdir, exist_ok=True)
     lines = code.lstrip("\n").splitlines(True)
     nb = {
@@ -189,8 +196,8 @@ def main(dsp_path, sines_path, route_dir, outdir):
     with open(os.path.join(outdir, "corpus-gain-witness.ipynb"), "w") as f:
         json.dump(nb, f)
     meta = {
-        "id": SLUG,
-        "title": "corpus gain witness",
+        "id": slug,
+        "title": slug.split("/")[1].replace("-", " "),
         "code_file": "corpus-gain-witness.ipynb",
         "language": "python",
         "kernel_type": "notebook",
@@ -199,7 +206,7 @@ def main(dsp_path, sines_path, route_dir, outdir):
         "enable_tpu": False,
         "enable_internet": True,
         "keywords": [],
-        "dataset_sources": ["heclgang/mc420-dawdreamer-gate-corpus"],
+        "dataset_sources": ["heclgang/mc420-dawdreamer-gate-corpus"] if corpus else [],
         "kernel_sources": [],
         "competition_sources": [],
         "model_sources": [],
@@ -212,4 +219,8 @@ def main(dsp_path, sines_path, route_dir, outdir):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]))
+    extra = sys.argv[5:]
+    sys.exit(main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4],
+                  extra[0] if len(extra) > 0 else SLUG,
+                  extra[1] if len(extra) > 1 else "1.0",
+                  (extra[2] != "0") if len(extra) > 2 else True))
