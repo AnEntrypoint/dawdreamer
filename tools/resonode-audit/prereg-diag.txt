@@ -1,0 +1,33 @@
+resonode diagnostic: pre-registration (fixed before any render of this diagnostic)
+
+Context
+- Follows the resonode audit pre-registration (tools/resonode-audit/prereg.txt, commit d9e2cd4c).
+- Its v2 run is kernel heclgang/resonode-audit v2, witness 1792952926474-4898-9acd71acb94cd8d6.
+- Question A: are the octave errors at MIDI 38, 44 and 64 (+1200 cents in v2) an instrument property or a peak-picking artefact.
+- Question B: are the 10 dB stretch and 3 dB position steps of the dial-smoothness measure (P2) real or a metric artefact.
+- Kernel heclgang/resonode-diag. Source, toolchain and driver are the audit's: mc-420 effects/home/faust/resonode_synth.dsp (sha256 9afb3b32d5851ae554aaaf513f70dbdcf804257a29c79cc937f0b2f631f8ec8e), Faust 2.85.9 faust_cli with -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0, render_cpp built with g++ -O3 -std=c++17 for x86 with no -mcpu, and render_cpp --ctl at 48000 Hz mono with 64-frame control blocks.
+- Harness: tools/resonode-audit/diag_resonode.py reuses the build, render and analysis functions of tools/resonode-audit/resonode_audit.py. Nothing else is run.
+
+Render conditions (both questions)
+- K mode: input 0, note and gate on voice 0, vel 1. Every other dial at its DSP default. Held key: gate 1 from frame 0.
+- Shape string: string weight 1.0, the other shape weights 0.0 (DSP default).
+- No file under mc-420 is written. Nothing is compiled locally.
+
+Question A (octave errors)
+- Keys: 38, 44, 64 (the v2 errors) and 48, 60 (controls). Length 1.2 s, as in P3.
+- Estimator: resonode_audit.settled_peak (Hann over 0.3 to 1.2 s, zero-padded to 2^18, largest magnitude in 20 to 6000 Hz, parabolic interpolation on log magnitude). f_nom = 440 * 2^((n-69)/12). cents_est = 1200 * log2(f_est / f_nom).
+- Partial k, k = 1..6: P_k is the largest |X|^2 over bins from 0.94 k f_nom to 1.06 k f_nom in the same spectrum (Hann, 0.3 to 1.2 s, zero-padded to 2^18). The band covers the stretch-jitter range of the string ratios (exponent 1 +/- 0.02). dB_k = 10 log10(P_k / max over j of P_j), j = 1..6.
+- k_chosen = the k in 1..6 that minimises |1200 * log2(f_est / (k f_nom))|.
+- RULE A: the error is a PEAK-PICKING ARTEFACT iff dB_1 - dB_2 < -12 AND k_chosen = 2. Otherwise it is an INSTRUMENT PROPERTY. Applied as written to keys 38, 44 and 64. Controls 48 and 60 get the same output, labelled control.
+- Reproduction: cents_est for keys 38, 44, 48, 60, 64 are compared with the v2 P3 cents for the same keys.
+
+Question B (smoothness steps)
+- Dials: position (range 0 to 1) and stretch (range -0.5 to 1.5). Base points at fractions 0.1 to 0.8 of the range, step +1% of the range, 2.0 s held note at MIDI 60. Render base and base+step: 8 pairs per dial.
+- Bin-aligned LSD: resonode_audit.lsd exactly (Hann 2048, hop 512, bins 0..1024, mean over frames of the RMS dB difference).
+- Smoothed LSD: per frame, each bin's power is replaced by the mean power over bins j with k * 2^(-1/6) <= j <= k * 2^(1/6), always including bin k (so every band has at least one bin). The LSD is then computed on the dB of the smoothed power, same frames and bins.
+- Per dial, over the 8 base points: median and maximum of each LSD.
+- RULE B: the dial's smoothness FAIL is a METRIC ARTEFACT iff the bin-aligned median > 1.5 dB AND the smoothed median <= 1.5 dB. Otherwise it is REAL. A dial whose bin-aligned median is at or below 1.5 dB has no median FAIL to classify and is reported as NO MEDIAN FAIL.
+- Reported next to rule B, not a verdict: the same test on the maximum with 6 dB (bin-aligned max > 6 dB AND smoothed max <= 6 dB gives MAX ARTEFACT).
+- Reproduction: the bin-aligned median and maximum per dial are compared with the v2 P2 lines for position and stretch.
+
+No threshold is revised after a number is seen. No criterion row is closed by this diagnostic.
