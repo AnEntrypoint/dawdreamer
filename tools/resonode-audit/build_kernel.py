@@ -49,6 +49,8 @@ def main(dsp_path, norm_path, outdir, slug=SLUG, entry="resonode_audit.py"):
         "diag_resonode.py": read_text(os.path.join(HERE, "diag_resonode.py")),
         "fetch_corpus.py": read_text(os.path.join(REPO, "tools", "corpus", "fetch_corpus.py")),
     }
+    if entry not in sources:
+        sources[entry] = read_text(os.path.join(HERE, entry))
     code = BOOT.replace("__SOURCES__", json.dumps(sources, ensure_ascii=True)).replace("__ENTRY__", entry)
     os.makedirs(outdir, exist_ok=True)
     name = slug.split("/")[1]
