@@ -1,0 +1,54 @@
+resonode prototype variants: pre-registration (fixed before any render)
+
+Context
+- Follows the resonode audit (tools/resonode-audit/prereg.txt, d9e2cd4c) and its diagnostic (tools/resonode-audit/prereg-diag.txt, cebb9e21).
+- Shipped source: mc-420 effects/home/faust/resonode_synth.dsp at b563a62a871bf8cfabbc7510da7ee2ffebc7386d, sha256 9afb3b32d5851ae554aaaf513f70dbdcf804257a29c79cc937f0b2f631f8ec8e. mc-420 is read only for this work and is not written.
+- The three variants are prototypes. None is a shipped change. Each is a candidate for mc-420 peer session 420 only if its condition passes.
+- Kernel heclgang/resonode-proto, Kaggle only, no local compile. Route as in the audit: faust_cli -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0, render_cpp built with g++ -O3 -std=c++17 for x86, no -march or -mcpu. 48000 Hz mono, 64-frame control blocks.
+- Harness: tools/resonode-audit/proto_variants.py reuses resonode_audit.py (build, render, analysis) and diag_resonode.py (partials, smoothing). Audit thresholds are unchanged.
+- The baseline (shipped text) is rendered and measured in the same run as the variants.
+
+Edits
+- Each edit is applied by the kernel to the shipped text. Each anchor must occur exactly once or the run stops. Anchors are matched on exact line text; leading spaces are part of the anchor.
+
+V1 partial balance
+- Anchor A1 (two lines): "    weightedOut = rawOut" followed by "                * modeAmpBase(i)". New: the same two lines, followed by "                * partial2Trim(i, freqFund)".
+- Anchor A2 (column 0): "modeStage(i, coupledIn, exc, freqFund, ratioExponent, positionLive) = normalisedOut, weightedOut". New: inserted above it, at column 0: "partial2TrimGain = 0.5;", "partial2TrimHz = 350.0;", "partial2Trim(i, f) = 1.0 - (1.0 - partial2TrimGain)*(i == 1)*shapeStringEffective*(f < partial2TrimHz);", then the anchor line unchanged.
+- Effect: the output tap of mode index 1 (partial 2) is multiplied by 0.5 (-6.02 dB) when the string shape is active and the note fundamental is below 350 Hz. Only weightedOut changes. normalisedOut, which feeds the coupling and feedback, does not.
+- Scope decisions, recorded before render:
+  (a) The brief says "below about 300 Hz". Key 64 is 329.6 Hz and is in V1's success set, so the gate is 350 Hz.
+  (b) The brief's wording "makes the fundamental at least 6 dB below partial 2 unnecessary" is read as the target that the fundamental is at least 6 dB above partial 2. The reading "below" would worsen the octave errors the variant is meant to fix. The factor 0.5 is one fixed value. It is not searched.
+  (c) Keys 48 (130.8 Hz) and 60 (261.6 Hz) are controls. Both lie below the 350 Hz gate, and key 60 lies between 44 and 64. Any frequency gate that reaches key 64 also reaches keys 48 and 60. The control criterion below is therefore expected to fail for this edit family. It is measured, not assumed.
+
+V2 stretch sensitivity
+- Anchor A3 (4 spaces): "    ratioExponent = 1.0 + stretch + stretchJitterAmt*noteJitter(note, gate);". New: "    ratioExponent = 1.0 + 0.25*stretch + stretchJitterAmt*noteJitter(note, gate);".
+- Effect: the stretch term in the mode-ratio exponent is scaled by 0.25. The same exponent also feeds the pole radius through modeLogRatioLive, so high-partial damping scales with it. This is one anchor, the smallest edit that scales the stretch effect on mode frequencies. Default stretch 0 gives output identical to the baseline.
+
+V3 decay default
+- Anchor A4 (column 0): 'decayTime = hslider("fx/resonode/decay", 1.2, 0.05, 8.0, 0.001) : morphGlide;'. New: the same line with 0.4 in place of 1.2.
+- Effect: default decay 0.4 s. Dial range 0.05 to 8.0 is unchanged. decayLoudnessNorm keeps its 1.2 s reference, so the default output level changes as the shipped formula implies.
+
+Render conditions
+- As in the audit (prereg.txt). K mode: input 0, key on voice 0 (note, gate 1, vel 1), other dials at DSP defaults except the one a criterion names. M mode: input is the female vibrato vocal file, gate 1 from frame 0, after the 0.5 s pre-roll.
+
+Criteria (thresholds from the audit and the brief; not revised after any number is seen)
+V1 PASS iff both:
+  (i) keys 38, 44 and 64 have |cents_est| <= 50, where cents_est is 1200 log2(f_est / f_nom) with f_est from resonode_audit.settled_peak (Hann 0.3 to 1.2 s, zero-padded 2^18, parabolic interpolation).
+  (ii) controls 48 and 60 each have max over k = 1..6 of |P_k(variant) - P_k(base)| < 1.0 dB, where P_k(x) = 10 log10 of the largest |X|^2 in the band 0.94 k f_nom to 1.06 k f_nom of the same spectrum (diag_resonode.partials band; absolute, not normalised to the strongest partial), measured in the same run.
+V2 PASS iff both:
+  (i) the stretch dial's smoothed median over the 8 base points is <= 1.5 dB. Smoothed LSD is diag_resonode.smoothed_lsd with smoothing(1025).
+  (ii) for each of the other seven dials, the bin-aligned P2 median and the bin-aligned P2 max (resonode_audit.lsd) are each within 0.5 dB of the baseline's same-run values.
+V3 PASS iff both:
+  (i) the M1 median Pearson r over the six vocal files is >= 0.8 (audit M1: 20 ms RMS envelope, window 960 samples, input and output over the active window after the pre-roll).
+  (ii) R1 unchanged: RT60(0.05) <= 0.2 s and RT60(8.0) >= 6.0 s, measured as the audit's R1 with each decay set explicitly. The default change does not reach R1 by construction; R1 is measured to confirm it.
+
+Reproduction checks (baseline run)
+- Key cents for 38, 44, 48, 60, 64 are compared with diag_resonode.V2_P3_CENTS, tolerance 0.06 cents.
+- Stretch and position bin-aligned P2 median and max are compared with diag_resonode.V2_P2.
+- A mismatch is reported in the results. It does not change any criterion.
+
+Not run
+- P1 determinism, the full P3 sweep (only keys 38, 44, 48, 60, 64 are rendered), R2, R3, M2, M3, M4, G1, G2, F1, F2, the sensitivity run, the LLVM comparison, and any other audit criterion.
+
+Reported
+- Per variant: the edit, the measured values, pass or fail against its condition, the dsp sha256 and the dsp.cpp sha256 from the META lines, the kernel slug and version, and the witness dispatch id.
