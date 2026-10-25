@@ -16,7 +16,7 @@ git -C "$REPO" show "$SHA:tools/loop-witness/loop_witness.cpp" > "$STAGE/loop_wi
 git -C "$REPO" show "$SHA:tools/loop-witness/faust_cli.cpp" > "$STAGE/faust_cli.cpp"
 git -C "$REPO" show "$SHA:tools/loop-witness/prereg.txt" > "$STAGE/prereg.txt"
 git -C "$REPO" show "$SHA:tools/loop-witness/run_witness.py" > "$KDIR/run_witness.py"
-cp /config/workspace/mc-420/dsp/loop.dsp "$STAGE/loop.dsp"
+git -C /config/workspace/mc-420 show 9c9638f52ddfba71da3ff697b01c88ea5366f88c:dsp/loop.dsp > "$STAGE/loop.dsp"
 
 (cd "$STAGE" && sha256sum loop.dsp loop_witness.cpp faust_cli.cpp prereg.txt > MANIFEST.sha256)
 tar -czf "$DSET/inputs.tar.gz" -C "$STAGE" .
