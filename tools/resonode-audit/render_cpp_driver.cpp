@@ -82,16 +82,59 @@ static std::vector<CtlJob> readJobs(const char* path) {
     return jobs;
 }
 
-static bool resolveAddress(MapUI& ui, const std::string& path, std::string& out) {
-    int hits = 0;
-    std::string hit;
-    size_t n = path.size();
-    for (int i = 0; i < ui.getParamsCount(); i++) {
-        std::string a = ui.getParamAddress(i);
-        if (a == path) { out = a; return true; }
-        if (a.size() > n && a.compare(a.size() - n, n, path) == 0 && a[a.size() - n - 1] == '/') { hit = a; hits++; }
+static std::string keyOf(const std::string& s) {
+    std::string k;
+    for (char c : s) k.push_back((c == '/' || c == ' ') ? '_' : c);
+    size_t b = 0;
+    while (b < k.size() && k[b] == '_') b++;
+    return k.substr(b);
+}
+
+static std::vector<std::string> splitPath(const std::string& s) {
+    std::vector<std::string> parts;
+    std::string cur;
+    for (char c : s) {
+        if (c == '/') { if (!cur.empty()) parts.push_back(cur); cur.clear(); }
+        else cur.push_back(c);
     }
-    if (hits == 1) { out = hit; return true; }
+    if (!cur.empty()) parts.push_back(cur);
+    return parts;
+}
+
+static bool isSubsequence(const std::vector<std::string>& want, const std::vector<std::string>& have) {
+    size_t j = 0;
+    for (size_t i = 0; i < have.size() && j < want.size(); i++) if (have[i] == want[j]) j++;
+    return j == want.size();
+}
+
+static bool resolveAddress(MapUI& ui, const std::string& path, std::string& out) {
+    std::vector<std::string> addrs;
+    for (int i = 0; i < ui.getParamsCount(); i++) addrs.push_back(ui.getParamAddress(i));
+    for (size_t i = 0; i < addrs.size(); i++) if (addrs[i] == path) { out = addrs[i]; return true; }
+    std::vector<size_t> hits;
+    size_t n = path.size();
+    for (size_t i = 0; i < addrs.size(); i++) {
+        const std::string& a = addrs[i];
+        if (a.size() > n && a.compare(a.size() - n, n, path) == 0 && a[a.size() - n - 1] == '/') hits.push_back(i);
+    }
+    if (hits.size() == 1) { out = addrs[hits[0]]; return true; }
+    hits.clear();
+    std::string want = keyOf(path);
+    for (size_t i = 0; i < addrs.size(); i++) {
+        std::string k = keyOf(addrs[i]);
+        size_t m = want.size();
+        if (k == want || (k.size() > m && k.compare(k.size() - m, m, want) == 0 && k[k.size() - m - 1] == '_')) hits.push_back(i);
+    }
+    if (hits.size() == 1) { out = addrs[hits[0]]; return true; }
+    hits.clear();
+    std::vector<std::string> wparts = splitPath(path);
+    for (size_t i = 0; i < addrs.size(); i++) {
+        std::vector<std::string> aparts = splitPath(addrs[i]);
+        if (!aparts.empty() && !wparts.empty() && aparts.back() == wparts.back() && isSubsequence(wparts, aparts)) hits.push_back(i);
+    }
+    if (hits.size() == 1) { out = addrs[hits[0]]; return true; }
+    fprintf(stderr, "unresolved %s; address table of %zu entries:\n", path.c_str(), addrs.size());
+    for (size_t i = 0; i < addrs.size(); i++) fprintf(stderr, "  [%zu] %s\n", i, addrs[i].c_str());
     return false;
 }
 

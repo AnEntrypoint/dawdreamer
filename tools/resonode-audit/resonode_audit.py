@@ -201,7 +201,7 @@ def run_jobs(jobfile, outdir, add, label):
     rc, o, e = sh([BUILD + "/render_cpp", "--ctl", jobfile, outdir], cwd=BUILD)
     add("META ctl %s rc=%d" % (label, rc))
     if rc != 0:
-        raise SystemExit("ctl render failed rc=%d: %s" % (rc, e[-800:]))
+        raise SystemExit("ctl render failed rc=%d: %s" % (rc, e[-6000:]))
 
 
 def fo(name, d):
