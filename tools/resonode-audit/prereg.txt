@@ -1,0 +1,65 @@
+resonode quality audit: pre-registration (fixed before any render)
+
+Source under test
+- mc-420 effects/home/faust/resonode_synth.dsp at commit b563a62a871bf8cfabbc7510da7ee2ffebc7386d.
+- Blob sha256 9afb3b32d5851ae554aaaf513f70dbdcf804257a29c79cc937f0b2f631f8ec8e. The file last changed at c738d013, before b563a62, and the mc-420 tree is clean.
+
+Corpus
+- Kaggle dataset heclgang/mc420-dawdreamer-gate-corpus, verified against manifest.sha256 with tools/corpus/fetch_corpus.py --verify (34 wavs under mc420/).
+- Level-normalised with mc-420 tools/corpus-level/normalise-corpus.mjs at 4e38a47d (rms 0.1, peak cap 0.9). Script sha256 ba2529866947b904772704264fea894971ce3e2c3b0c6ff532de3c4b93288e78.
+- Mouth inputs are the six vocal_* files.
+
+Toolchain (binding route, Kaggle only, no local libfaust compile)
+- Faust 2.85.9 release libfaust-ubuntu-x86_64, faust architecture headers from the 2.85.9 tag, faustlibraries 78a72d4998dec43e20492ef9b78d1a785b3dc864.
+- faust_cli (replica of the faust CLI entry, linked against libfaustwithllvm.a) with -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0.
+- render_cpp built with g++ -O3 -std=c++17 for x86, no -march or -mcpu.
+- LLVM backend is comparison only and is not run for these criteria.
+
+Render conditions
+- 48000 Hz, mono, output channel 0. Parameters are applied as frame-accurate events in 64-frame control blocks.
+- K (key-only): input 0. The key sets note and gate, vel 1. Mallet, bow, hardness and the other dials stay at their DSP defaults unless a criterion says otherwise.
+- M (mouth): input 1.0 with a vocal file as the live input. The key is gated on from frame 0 and the file starts after a 0.5 s silent pre-roll.
+- Held note: gate 1 from frame 0 unless stated.
+- MIDI key n is 60 unless stated.
+
+Analysis definitions
+- STFT: Hann window 2048, hop 512, power dB = 10 log10(|X|^2 + 1e-10).
+- LSD(a, b) = mean over frames of sqrt(mean over bins 0..1024 of (dB_a - dB_b)^2), in dB.
+- Pearson r is over the stated window.
+
+Criteria and thresholds (proposed thresholds, not revised; no threshold was changed after any number was seen)
+
+P1 determinism. Jobs covering a key-only note change (60 to 72 at 0.8 s) and an M run are rendered by two separate driver processes. PASS iff every output is byte-identical (sha256).
+
+P2 dial smoothness. For each dial with range lo..hi (position 0..1, tone 200..18000, decay 0.05..8, damping 0.05..1, stretch -0.5..1.5, collision 0..1, hardness 0..1, body 0..1): base points at fractions 0.1, 0.2, ..., 0.8 of the range, step = +1% of the range. Render base and base+step as a 2.0 s held note; the criterion is LSD(base, base+step). A dial PASSES iff its median over the 8 base points is at most 1.5 dB and its maximum is at most 6 dB. Mode is K for every dial except tone, which is measured in M with vocal_female_vibrato, because tone acts only on the live input path. P2 PASSES iff all 8 dials pass.
+
+P3 note tracking. K mode, default string shape, MIDI 36 to 96 inclusive, 1.2 s held note. Settled peak = frequency of the largest magnitude in 20 to 6000 Hz of the Hann-windowed 0.3 to 1.2 s segment, zero-padded to 2^18, with parabolic interpolation on log magnitude. cents = 1200 log2(f / (440 * 2^((n-69)/12))). An octave error is |cents| >= 600. PASS iff median |cents| <= 10 and the octave-error count is 0.
+
+R1 decay range. M mode with the key held and input = a single-sample impulse of amplitude 0.05 at 0.1 s in a 12 s render (zeros elsewhere), so the exciter cannot ring after the impulse. Decay in {0.05, 0.2, 1.2, 3.0, 6.0, 8.0}. RT60 = -60 / slope, where slope is the least-squares fit of the Schroeder backward-integrated energy (dB) over the -5 to -35 dB range, starting at the impulse. PASS iff RT60(0.05) <= 0.2 s AND RT60(8.0) >= 6.0 s.
+
+R2 timbre span. K mode, MIDI 60, 1.5 s. Five presets, each with one shape weight 1.0 and the other four 0.0. Centroid = power-weighted mean frequency of the Hann-windowed output after 0.2 s (the spectral_centroid definition in test/resonode-sweetspot/harness.py). PASS iff max/min >= 2 (one octave).
+
+R3 brightness span. M mode, MIDI 60, for each of the six vocal files and tone in {200, 600, 1800, 6000, 18000}. Band energy 2 to 8 kHz in dB over the output from 0.5 s to the end. Spread = max minus min over the five tone values. PASS iff the median spread over the six files is at least 20 dB. The K-mode tone spread is reported as a finding and is not a criterion.
+
+M1 envelope follow. M mode, each of the six vocal files, defaults otherwise. 20 ms RMS envelope (moving window, same definition for input and output), over the input active window after the pre-roll. PASS iff the median Pearson r is at least 0.8. Sensitivity only, not a criterion: decay 0.05 on vocal_female_vibrato.
+
+M2 spectral follow. M mode, the same six files. Per-frame spectral centroid (Hann 2048, hop 512). Frames are kept where the input frame power is at least -40 dB relative to the input's loudest frame. PASS iff the median Pearson r between input and output centroids is at least 0.5.
+
+M3 latency. M mode, the same six files. Onset = first sample where the 5 ms RMS envelope reaches 10% of its maximum. Latency = output onset minus input onset, signed. Every value is reported. PASS iff the median absolute latency is at most 10 ms.
+
+M4 keys with mouth. Fixed key MIDI 60. (a) M with vocal_female_vibrato versus M with vocal_male_baritone_scale. (b) M with vocal_female_vibrato versus K over the same duration (the no-input run). LTAS = mean over frames of the dB spectrum over the active window; distance = RMS over all bins of the dB difference. PASS iff (a) and (b) are both at least 1 dB.
+
+Gaps (not criteria; measured or confirmed by code reading)
+G1 key-free mouth mode. Gate 0 with the vocal input. The output peak is measured; the gap is confirmed if the peak is below 1e-6. The DSP multiplies the live input by excEnv, an envelope driven by the gate (exciteFor in the source).
+G2 mouth pitch as pitch or timbre. No test is run. The DSP has no pitch estimator on the input; frequency comes only from the note through freqGlide, and tone is a lowpass on the input path. Reported as a gap by code reading.
+
+Findings (measured, not criteria)
+F1 tone inert without mouth input: LSD between K renders at tone 200 and tone 18000.
+F2 hardness inert with mouth input: LSD between M renders at hardness 0 and hardness 1.
+
+Existing measurements reused or not repeated (test/resonode-sweetspot)
+- harness.py spectral_centroid is reused as the R2 definition.
+- sweep.py reports a -24 dB decay time, not RT60, so R1 is a new measurement.
+- verify_musical_controls.py (tone taper, morph-glide click, velocity, collision bounds, silent-without-input, plays-without-input, alias guard, steal, coupling) is not repeated.
+- gain_fix_ab.py and real_corpus_excitation.py are not repeated.
+- The existing scripts run only through a local dawdreamer render and were not run here.
