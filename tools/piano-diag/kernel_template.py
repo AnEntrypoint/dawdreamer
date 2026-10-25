@@ -4,26 +4,46 @@ from concurrent.futures import ThreadPoolExecutor
 REF = "__REF__"
 DD = "https://raw.githubusercontent.com/AnEntrypoint/dawdreamer/" + REF + "/tools/piano-diag/"
 MC = "https://raw.githubusercontent.com/AnEntrypoint/mc-420/"
-MC_DSP = "b563a62a871bf8cfabbc7510da7ee2ffebc7386d"
 MC_NORM = "4e38a47d5911f1976f44eaa3383cc3680c833274"
 FAUST = "2.85.9"
 FAUSTLIB = "78a72d4998dec43e20492ef9b78d1a785b3dc864"
-PIN = {
-    "shipped_dsp": "cea5e4f00533f0364bfd7eb9f62e851029ee9a1301b4ba8566d0c5dc7f4d67e0",
-    "normaliser": "ba2529866947b904772704264fea894971ce3e2c3b0c6ff532de3c4b93288e78",
-    "piano_raw": "eeb66ca2217a79843bf205a03deee6978cf76e9e0a09f598baed5266be9a49f2",
-    "piano_norm": "1fd2224f39de72d8af8773e4af765aff8892a6495a0669d46802289f593b4821",
+PIN_NORM = "ba2529866947b904772704264fea894971ce3e2c3b0c6ff532de3c4b93288e78"
+PIN_PIANO_LEVEL = "1fd2224f39de72d8af8773e4af765aff8892a6495a0669d46802289f593b4821"
+PIN_PIANO_TSV = {
+    "tau0.01": "b526a1e8f02ce96fdb2a32d49192c9db7bf2463958893bb4e1344333dab47fad",
+    "tau0.02": "b7b8aeb160272630ff8e191f128f71c4e6d83ac7bd2038b670fa775be5471532",
+}
+RAW_PIN = {
+    "piano_low_A1": "eeb66ca2217a79843bf205a03deee6978cf76e9e0a09f598baed5266be9a49f2",
+    "violin_low_sulG_G3B3": "b6a2b4e1e31db0cd1a34d0f007b25e3c666eeff30228cc66d781a5ee83e6d663",
+    "violin_high_sulE_C7E7": "5c6bc8d11ee16aeb65e4d02c68a70873ca6d154d1c99553fde0c4a9ea5b8a993",
+    "xylophone_run_C7B7": "27953dd0d6a540c0be6e201cc204ab8fe6110581600760c868dc5991e39c94ed",
+    "crotale_high_C7": "34d5e68ec10c20d1ede955c2bbbf2bc74de6ce8a77e21a9e1b2312d91915c449",
+    "vocal_melody_twinkle_CC0": "71932a610f1104a8dbf9b730c1cccc83d4e77259d6991793d23a546d9846a5f1",
+    "vocal_tenor_operatic_PD": "048bb69bf3b37cfa58e79240b5a130a78762e48d0b171767758de59b5491c96e",
 }
 PINNED = ["-vec", "-fun", "-dfs", "-vs", "32", "-nvi", "-ct", "0"]
 TAU_OLD = "    energyTau = 0.01;"
 TAU_NEW = "    energyTau = 0.02;"
+GAINS = {"level": "1.0", "corpus": "0.00707945784384138"}
+JOBS = [
+    ("level", "piano_low_A1", "tau0.01"),
+    ("level", "piano_low_A1", "tau0.02"),
+    ("level", "violin_low_sulG_G3B3", "tau0.01"),
+    ("level", "violin_low_sulG_G3B3", "tau0.02"),
+    ("level", "violin_high_sulE_C7E7", "tau0.01"),
+    ("level", "xylophone_run_C7B7", "tau0.01"),
+    ("corpus", "violin_low_sulG_G3B3", "tau0.01"),
+    ("corpus", "violin_low_sulG_G3B3", "tau0.02"),
+    ("corpus", "violin_high_sulE_C7E7", "tau0.01"),
+    ("corpus", "xylophone_run_C7B7", "tau0.01"),
+    ("corpus", "crotale_high_C7", "tau0.01"),
+    ("corpus", "vocal_melody_twinkle_CC0", "tau0.01"),
+    ("corpus", "vocal_tenor_operatic_PD", "tau0.01"),
+]
 STUB_C = ("void *set_curterm(void *t){return 0;} int setupterm(const char *t,int fd,int *e){if(e)*e=0;return -1;}"
           " int tigetnum(const char *c){return -1;} int del_curterm(void *t){return 0;}\n")
 W = "/kaggle/working/piano-diag"
-WAV = "inputs/piano_low_A1.wav"
-VARIANTS = ["shipped_tau0.01", "shipped_tau0.02", "instr_tau0.01", "instr_tau0.02"]
-SIGNALS = ["out", "raw", "env", "aboveFloor", "holdCount", "ready", "coarse", "refinedHz",
-           "refinedLag", "finalConf", "confident", "demoteNow", "dom2", "dom3", "n_ready", "n_conf", "n_voiced"]
 
 
 def say(*parts):
@@ -53,11 +73,11 @@ def fetch(url, dest):
     must(["curl", "-sfL", "--retry", "3", url, "-o", dest])
 
 
-def pin(name, path):
+def pin(label, path, want):
     got = sha_file(path)
-    if got != PIN[name]:
-        raise SystemExit("pin mismatch %s %s" % (name, got))
-    say("pin ok", name, got)
+    if got != want:
+        raise SystemExit("pin mismatch %s %s" % (label, got))
+    say("pin ok", label, got)
 
 
 def subst(text, old, new):
@@ -67,67 +87,49 @@ def subst(text, old, new):
     return text.replace(old, new)
 
 
-def npy_payload(path):
-    b = open(path, "rb").read()
-    hl = int.from_bytes(b[8:10], "little")
-    return b[10 + hl:]
-
-
 def read_tsv(path):
     lines = open(path).read().splitlines()
     head = lines[0].split("\t")
     return head, [dict(zip(head, l.split("\t"))) for l in lines[1:]]
 
 
-def load_variant(name):
-    if name.startswith("shipped"):
-        txt = os.path.join(W, "out", name + "_piano_low_A1.txt")
-        npy = os.path.join(W, "out", name + "_piano_low_A1.npy")
-        pairs = [(float(p[0]), float(p[1])) for p in (l.split() for l in open(txt)) if len(p) == 2]
-        return {"pairs": pairs, "ch0_sha": hashlib.sha256(npy_payload(npy)).hexdigest(),
-                "trace_sha": sha_file(txt), "trace": txt}
-    tsv = os.path.join(W, "out", name + ".tsv")
-    f32 = os.path.join(W, "out", name + "_ch0.f32")
-    head, rows = read_tsv(tsv)
-    pairs = [(float(r["t"]), float(r["out"])) for r in rows]
-    return {"pairs": pairs, "ch0_sha": hashlib.sha256(open(f32, "rb").read()).hexdigest(),
-            "trace_sha": sha_file(tsv), "trace": tsv}
-
-
-def build(name, text, driver):
-    vdir = os.path.join(W, name)
+def build(tau, instr):
+    text = instr if tau == "tau0.01" else subst(instr, TAU_OLD, TAU_NEW)
+    vdir = os.path.join(W, "build_" + tau)
     os.makedirs(vdir, exist_ok=True)
     open(os.path.join(vdir, "in.dsp"), "w").write(text)
     must([os.path.join(W, "faust_cli"), "-lang", "cpp"] + PINNED + ["-I", LIBS, "in.dsp", "-o", "dsp.cpp"],
          cwd=vdir, env=ENV)
-    shutil.copy(os.path.join(W, driver), os.path.join(vdir, driver))
-    must(["g++", "-O3", "-std=c++17", "-I", ARCH, driver, "-o", "render"], cwd=vdir)
-    out = os.path.join(W, "out", name)
-    exe = os.path.join(vdir, "render")
-    if driver == "render_cpp_driver.cpp":
-        must([exe, name, "1.0", out, os.path.join(W, WAV)], cwd=vdir)
-    else:
-        must([exe, "1.0", out, os.path.join(W, WAV)], cwd=vdir)
-    return name
+    shutil.copy(os.path.join(W, "render_trace.cpp"), os.path.join(vdir, "render_trace.cpp"))
+    must(["g++", "-O3", "-std=c++17", "-I", ARCH, "render_trace.cpp", "-o", "render"], cwd=vdir)
+    return tau
+
+
+def render(job):
+    gk, wav, tau = job
+    label = "%s__%s__%s" % (gk, wav, tau)
+    src = os.path.join(W, "level" if gk == "level" else "raw", wav + ".wav")
+    vdir = os.path.join(W, "build_" + tau)
+    must([os.path.join(vdir, "render"), GAINS[gk], os.path.join(W, "out", label), src], cwd=vdir)
+    return label
 
 
 def main():
     global ARCH, LIBS, ENV
     os.makedirs(W, exist_ok=True)
     os.chdir(W)
-    for d in ("raw", "inputs", "out"):
+    for d in ("raw", "level", "out"):
         os.makedirs(d, exist_ok=True)
-    fetch(MC + MC_DSP + "/effects/pitchtracker-src/pitchtracker_ac.dsp", "shipped.dsp")
-    pin("shipped_dsp", "shipped.dsp")
-    fetch(MC + MC_NORM + "/tools/corpus-level/normalise-corpus.mjs", "normalise-corpus.mjs")
-    pin("normaliser", "normalise-corpus.mjs")
-    fetch(MC + MC_NORM + "/test-audio-corpus/instruments/piano_low_A1.wav", "raw/piano_low_A1.wav")
-    pin("piano_raw", "raw/piano_low_A1.wav")
-    must(["node", "normalise-corpus.mjs", "--src", "raw", "--out", "inputs", "--rms", "0.1"])
-    pin("piano_norm", WAV)
-    for name in ["pitchtracker_ac_diag.dsp", "render_trace.cpp", "faust_cli.cpp", "render_cpp_driver.cpp"]:
+    for name in ["pitchtracker_ac_diag.dsp", "render_trace.cpp", "faust_cli.cpp"]:
         fetch(DD + name, name)
     say("harness ref", REF)
+    for name, want in RAW_PIN.items():
+        fetch(MC + MC_NORM + "/test-audio-corpus/instruments/" + name + ".wav", "raw/" + name + ".wav")
+        pin(name, "raw/" + name + ".wav", want)
+    fetch(MC + MC_NORM + "/tools/corpus-level/normalise-corpus.mjs", "normalise-corpus.mjs")
+    pin("normaliser", "normalise-corpus.mjs", PIN_NORM)
+    must(["node", "normalise-corpus.mjs", "--src", "raw", "--out", "level", "--rms", "0.1"])
+    pin("piano_level", "level/piano_low_A1.wav", PIN_PIANO_LEVEL)
     fetch("https://github.com/grame-cncm/faust/releases/download/%s/libfaust-ubuntu-x86_64.zip" % FAUST,
           "libfaust.zip")
     zipfile.ZipFile("libfaust.zip").extractall("faust-lib")
@@ -160,69 +162,51 @@ def main():
     if built is None:
         raise SystemExit("faust_cli did not link")
     say("faust_cli link", built)
-    shipped = open("shipped.dsp").read()
     instr = open("pitchtracker_ac_diag.dsp").read()
-    jobs = [
-        ("shipped_tau0.01", shipped, "render_cpp_driver.cpp"),
-        ("shipped_tau0.02", subst(shipped, TAU_OLD, TAU_NEW), "render_cpp_driver.cpp"),
-        ("instr_tau0.01", instr, "render_trace.cpp"),
-        ("instr_tau0.02", subst(instr, TAU_OLD, TAU_NEW), "render_trace.cpp"),
-    ]
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        for tau in ex.map(lambda t: build(t, instr), ["tau0.01", "tau0.02"]):
+            say("built", tau)
     with ThreadPoolExecutor(max_workers=4) as ex:
-        for name in ex.map(lambda j: build(*j), jobs):
-            say("built and rendered", name)
-    report()
-    for heavy in ("faust-lib", "faust-src", "faust-libs"):
-        shutil.rmtree(heavy, ignore_errors=True)
+        labels = list(ex.map(render, JOBS))
+    report(labels)
+    cleanup()
 
 
-def report():
-    summary = {"harness_ref": REF, "faust": FAUST, "pinned_flags": " ".join(PINNED), "variants": {}}
-    loaded = {}
-    for name in VARIANTS:
-        v = load_variant(name)
-        loaded[name] = v
-        settled = [hz for t, hz in v["pairs"] if t >= 1.0 and hz != 0.0]
-        summary["variants"][name] = {
+def report(labels):
+    summary = {"harness_ref": REF, "faust": FAUST, "pinned_flags": " ".join(PINNED), "jobs": {}}
+    for label in labels:
+        path = os.path.join(W, "out", label + ".tsv")
+        head, rows = read_tsv(path)
+        pairs = [(float(r["t"]), float(r["out"])) for r in rows]
+        settled = [hz for t, hz in pairs if t >= 1.0 and hz != 0.0]
+        summary["jobs"][label] = {
             "settled_median_hz": statistics.median(settled) if settled else None,
             "settled_n": len(settled),
-            "voiced_blocks_total": sum(1 for _, hz in v["pairs"] if hz != 0.0),
-            "ch0_payload_sha256": v["ch0_sha"],
-            "trace": v["trace"],
-            "trace_sha256": v["trace_sha"],
+            "voiced_blocks_total": sum(1 for _, hz in pairs if hz != 0.0),
+            "blocks": len(rows),
+            "trace": "out/" + label + ".tsv",
+            "trace_sha256": sha_file(path),
         }
-        say(name, "settled_median_hz", summary["variants"][name]["settled_median_hz"],
-            "settled_n", len(settled), "voiced_total", summary["variants"][name]["voiced_blocks_total"],
-            "trace_sha256", v["trace_sha"])
-    for tau in ("0.01", "0.02"):
-        a = summary["variants"]["shipped_tau" + tau]["ch0_payload_sha256"]
-        b = summary["variants"]["instr_tau" + tau]["ch0_payload_sha256"]
-        summary["proof_tau" + tau] = {"shipped_ch0": a, "instr_ch0": b, "identical": a == b}
-        say("proof tau", tau, "identical", a == b)
-    head, A = read_tsv(os.path.join(W, "out", "instr_tau0.01.tsv"))
-    _, B = read_tsv(os.path.join(W, "out", "instr_tau0.02.tsv"))
-    first = {}
-    for c in SIGNALS:
-        for i, (ra, rb) in enumerate(zip(A, B)):
-            if c in ra and ra[c] != rb[c]:
-                first[c] = i
-                break
-    vdiv = None
-    for i, (ra, rb) in enumerate(zip(A, B)):
-        if (float(ra["out"]) != 0.0) != (float(rb["out"]) != 0.0):
-            vdiv = i
-            break
-    summary["first_divergent_block_per_signal"] = first
-    summary["first_voicing_divergent_block"] = vdiv
-    if vdiv is not None:
-        summary["voicing_block_values"] = {
-            "tau0.01": {c: A[vdiv].get(c) for c in ["block", "t"] + SIGNALS if c in A[vdiv]},
-            "tau0.02": {c: B[vdiv].get(c) for c in ["block", "t"] + SIGNALS if c in B[vdiv]},
-        }
-    say("first voicing divergent block", vdiv)
-    say("first divergent block per signal", first)
+        say(label, "settled_median_hz", summary["jobs"][label]["settled_median_hz"],
+            "settled_n", len(settled), "voiced_total", summary["jobs"][label]["voiced_blocks_total"],
+            "trace_sha256", summary["jobs"][label]["trace_sha256"])
+    for tau in ("tau0.01", "tau0.02"):
+        label = "level__piano_low_A1__" + tau
+        got = summary["jobs"][label]["trace_sha256"]
+        summary["piano_tsv_matches_v1_" + tau] = got == PIN_PIANO_TSV[tau]
+        say("piano tsv matches v1", tau, got == PIN_PIANO_TSV[tau])
     json.dump(summary, open(os.path.join(W, "summary.json"), "w"), indent=2)
-    say(json.dumps(summary, indent=2))
+
+
+def cleanup():
+    for p in ["faust-lib", "faust-src", "faust-libs", "raw", "level", "build_tau0.01", "build_tau0.02"]:
+        shutil.rmtree(os.path.join(W, p), ignore_errors=True)
+    for p in ["libfaust.zip", "faust.tar.gz", "faustlibs.tar.gz", "faust_cli", "faust_cli.cpp", "stub.c",
+              "stub.o", "normalise-corpus.mjs", "pitchtracker_ac_diag.dsp", "render_trace.cpp"]:
+        path = os.path.join(W, p)
+        if os.path.exists(path):
+            os.remove(path)
+    say("cleanup done; remaining:", sorted(os.listdir(W)))
 
 
 if __name__ == "__main__":
