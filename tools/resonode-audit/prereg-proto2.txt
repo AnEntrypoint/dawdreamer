@@ -1,0 +1,70 @@
+resonode prototype round 2: pre-registration (fixed before any render)
+
+Context
+- Follows round 1 (witness 1792956360043-4984-4aaf1199bdde8cbe; kernel heclgang/resonode-proto v1; tools/resonode-audit/prereg-proto.txt). Round 1 failed all three single-change variants: V1 moved controls 48 and 60 by about 6 dB; V2 stretch 0.25 gave smoothed median 1.96 dB; V3 decay 0.4 gave envelope median r 0.29.
+- Shipped source: mc-420 effects/home/faust/resonode_synth.dsp at b563a62a871bf8cfabbc7510da7ee2ffebc7386d, sha256 9afb3b32d5851ae554aaaf513f70dbdcf804257a29c79cc937f0b2f631f8ec8e. mc-420 is read only for this work and is not written.
+- The variants are prototypes. None is a shipped change. A variant that passes its condition is a candidate for mc-420 peer session 420, which implements any change there.
+- Kernel heclgang/resonode-proto2, Kaggle only, no local compile. Route as in the audit: faust_cli -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0, render_cpp built with g++ -O3 -std=c++17 for x86, no -march or -mcpu. 48000 Hz mono, 64-frame control blocks.
+- Harness: tools/resonode-audit/proto2_variants.py reuses resonode_audit.py (build, render, analysis) and diag_resonode.py (smoothing, smoothed LSD, round 1 reproduction constants). build_kernel.py packages it with the audit sources.
+- Audit thresholds are unchanged. The shipped baseline is rendered and measured in the same run as each variant.
+
+Edits (applied by the kernel to the shipped text; each anchor must occur exactly once or the run stops; anchors are exact line text, leading spaces included)
+- R2a: anchor (4 spaces) "    ratioExponent = 1.0 + stretch + stretchJitterAmt*noteJitter(note, gate);" becomes "    ratioExponent = 1.0 + 0.15*stretch + stretchJitterAmt*noteJitter(note, gate);". Stretch sensitivity 0.15 in place of 0.25.
+- R2b: R2a's edit, plus anchor (column 0) 'decayTime = hslider("fx/resonode/decay", 1.2, 0.05, 8.0, 0.001) : morphGlide;' becomes the same line with 0.4. Default decay 0.4 s; dial range unchanged.
+- R2c: input-envelope gain. Two anchors.
+  (a) Anchor (column 0) "process(exciteIn) =". The new lines below are inserted above it, at column 0:
+      liveEnvAttackPole = ba.tau2pole(0.01);
+      liveEnvReleasePole = ba.tau2pole(0.3);
+      liveEnvFollow(x) = e
+      letrec {
+          'e = ba.if(abs(x) > e, liveEnvAttackPole*e + (1.0 - liveEnvAttackPole)*abs(x), liveEnvReleasePole*e + (1.0 - liveEnvReleasePole)*abs(x));
+      };
+      liveEnvGain(x) = 1.0 - inputAmt*(1.0 - min(1.0, liveEnvFollow(x)));
+  (b) Anchor (4 spaces) "    : *(outLevel*decayLoudnessNorm) : ma.tanh" followed by a newline. The new line "    : *(0.5 + 0.5*liveEnvGain(exciteIn))" is inserted after it.
+
+Scope decisions, recorded before render
+- (a) R2c output = (1 - 0.5)*shipped + 0.5*(shipped*E) = shipped*(0.5 + 0.5*E), with E = liveEnvGain(exciteIn). The envelope follows |live input| with a one-pole attack time constant of 10 ms and release time constant of 300 ms (ba.tau2pole). E is at most 1.
+- (b) E includes the input dial: E = 1 - input*(1 - min(1, env)). The live input is the only thing the envelope follows, and the input dial scales that drive. With input dial 0, E is exactly 1 on every sample, so the output is bit-identical to the shipped output. Without this scaling a zero live input would halve the output, and the bit-identity condition could not hold.
+- (c) R2c has no P2 measurement. Its condition uses only the three conditions below.
+
+Render conditions
+- As in the audit (prereg.txt): 48000 Hz mono, output channel 0, 64-frame control blocks.
+- K (key-only): input dial 0; key on voice 0 (note, gate 1, vel 1); other dials at DSP defaults except the one a criterion names; default string shape.
+- M (mouth): input dial 1.0; input file is the vocal file; the key is gated on from frame 0 and the file starts after a 0.5 s silent pre-roll.
+- Vocal set: the six vocal_* files of the audit.
+- Keys: every MIDI key 36 to 96 inclusive in K mode, 1.2 s held note, for every variant. Used for the bit-identity check and for the cents readout.
+
+Criteria (thresholds from the audit; not revised after any number is seen)
+- Stretch dial smoothed median: the stretch dial's median over the 8 base points of diag_resonode.smoothed_lsd(a, b, smoothing(1025)). Mode K. Base points at fractions 0.1 to 0.8 of the range -0.5..1.5, step +1% of the range, 2.0 s held note, as in audit P2.
+- P2 bin-aligned: resonode_audit.lsd median and max over the same 8 base points for each dial, as in audit P2. Tone is measured in M mode as in the audit.
+- M1 median r: median Pearson r over the six vocal files, 20 ms RMS envelope (window 960 samples, same definition for input and output), over the input active window after the pre-roll.
+- R1 RT60: as audit R1. M mode, key 60 held, impulse 0.05 at 0.1 s in a 12 s render, decays {0.05, 0.2, 1.2, 3.0, 6.0, 8.0}, Schroeder fit over -5 to -35 dB.
+- M4: as audit M4 at key 60. (a) LTAS distance between female and male vocal outputs; (b) LTAS distance between female vocal output and the K-mode output of the same duration. Both in dB, both must be at least 1.
+
+R2a PASS iff both:
+  (i) the stretch dial's smoothed median is at most 1.5 dB;
+  (ii) for each of the other seven dials, |bin median (R2a) - bin median (base)| is at most 0.5 dB and |bin max (R2a) - bin max (base)| is at most 0.5 dB, both measured in the same run.
+
+R2b PASS iff all three:
+  (i) the stretch dial's smoothed median is at most 1.5 dB;
+  (ii) M1 median r is at least 0.8 on the vocal set. M1 is reported even if it fails;
+  (iii) R1 unchanged: each of the six RT60 values is within 1% (relative) of the base's same-run value. The audit R1 PASS condition (RT60(0.05) at most 0.2 s and RT60(8.0) at least 6.0 s) is also reported.
+
+R2c PASS iff all three:
+  (i) M1 median r is at least 0.8 on the vocal set;
+  (ii) M4 (a) and (b) both at least 1 dB, measured on R2c's own renders;
+  (iii) key-only regression: for every MIDI key 36 to 96, the K-mode R2c output file's sha256 equals the base's.
+
+Reproduction checks (base only; not criteria)
+- Cents for keys 38, 44, 48, 60, 64 against diag_resonode.V2_P3_CENTS, tolerance 0.06 cents.
+- Stretch and position bin-aligned P2 median and max against diag_resonode.V2_P2, tolerance 0.0002.
+A mismatch is reported. It does not change any criterion.
+
+Informational (not criteria)
+- P2 for every dial in R2b and in base and R2a is measured and reported. M1 is reported for all four renders. Cents are computed for all keys and reported for keys 38, 44, 48, 60, 64.
+
+Not run
+- P1 determinism; P3 as a criterion; R2, R3, M2, M3, G1, G2, F1, F2, S1; the LLVM comparison; any audit criterion not named above.
+
+Reported per variant
+- The edit (anchor and new text), measured values, PASS or FAIL against its condition, dsp_text sha256 and dsp.cpp sha256 from the META lines, kernel slug and version, witness dispatch id, and the results file sha256.
