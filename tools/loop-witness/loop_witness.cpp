@@ -177,8 +177,20 @@ Loop analyseLoop(const Trace& tr, long L)
 
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc > 1 && std::string(argv[1]) == "--dump") {
+        mydsp* d = new mydsp();
+        d->init((int)SR);
+        MapUI ui;
+        d->buildUserInterface(&ui);
+        std::map<std::string, FAUSTFLOAT*>& zm = ui.getFullpathMap();
+        for (std::map<std::string, FAUSTFLOAT*>::iterator it = zm.begin(); it != zm.end(); ++it) {
+            std::printf("UIPATH %s\n", it->first.c_str());
+        }
+        delete d;
+        return 0;
+    }
     std::printf("backend cpp (generated mydsp, dsp.cpp from faust_cli, flags -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0)\n");
 
     gX.assign(1000000, 0.0f);

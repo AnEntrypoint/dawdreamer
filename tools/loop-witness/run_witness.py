@@ -107,8 +107,12 @@ def main():
         return fail(log, "harness build failed", out)
     log.append("harness built g++ -O3 sha256 %s" % sha256("loop_witness"))
 
-    rc, out = sh(["./loop_witness"])
-    emit(log + ["harness exit rc=%d" % rc] + out.splitlines())
+    with open("dsp.cpp") as f:
+        ui_lines = [l.rstrip() for l in f if "ui_interface->" in l]
+    log.append("dsp.cpp ui_interface declarations: %d" % len(ui_lines))
+    log.extend(ui_lines)
+    rc, out = sh(["./loop_witness", "--dump"])
+    emit(log + ["harness dump exit rc=%d" % rc] + out.splitlines())
     return 0
 
 
