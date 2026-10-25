@@ -18,9 +18,9 @@ os.makedirs(W, exist_ok=True)
 for name, text in SOURCES.items():
     with open(os.path.join(W, name), "w") as f:
         f.write(text)
-rc = subprocess.run([sys.executable, "-I", os.path.join(W, "resonode_audit.py")]).returncode
+rc = subprocess.run([sys.executable, "-I", os.path.join(W, "__ENTRY__")]).returncode
 if rc != 0:
-    raise SystemExit("resonode_audit exited %d" % rc)
+    raise SystemExit("__ENTRY__ exited %d" % rc)
 '''
 
 
@@ -35,7 +35,7 @@ def sha(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
-def main(dsp_path, norm_path, outdir):
+def main(dsp_path, norm_path, outdir, slug=SLUG, entry="resonode_audit.py"):
     if sha(dsp_path) != DSP_SHA:
         raise SystemExit("dsp sha mismatch: " + sha(dsp_path))
     if sha(norm_path) != NORM_SHA:
@@ -46,10 +46,12 @@ def main(dsp_path, norm_path, outdir):
         "faust_cli.cpp": read_text(os.path.join(HERE, "faust_cli.cpp")),
         "render_cpp_driver.cpp": read_text(os.path.join(HERE, "render_cpp_driver.cpp")),
         "resonode_audit.py": read_text(os.path.join(HERE, "resonode_audit.py")),
+        "diag_resonode.py": read_text(os.path.join(HERE, "diag_resonode.py")),
         "fetch_corpus.py": read_text(os.path.join(REPO, "tools", "corpus", "fetch_corpus.py")),
     }
-    code = BOOT.replace("__SOURCES__", json.dumps(sources, ensure_ascii=True))
+    code = BOOT.replace("__SOURCES__", json.dumps(sources, ensure_ascii=True)).replace("__ENTRY__", entry)
     os.makedirs(outdir, exist_ok=True)
+    name = slug.split("/")[1]
     lines = code.lstrip("\n").splitlines(True)
     nb = {
         "cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": lines}],
@@ -58,12 +60,12 @@ def main(dsp_path, norm_path, outdir):
         "nbformat": 4,
         "nbformat_minor": 4,
     }
-    with open(os.path.join(outdir, "resonode-audit.ipynb"), "w") as f:
+    with open(os.path.join(outdir, name + ".ipynb"), "w") as f:
         json.dump(nb, f)
     meta = {
-        "id": SLUG,
-        "title": "resonode audit",
-        "code_file": "resonode-audit.ipynb",
+        "id": slug,
+        "title": name.replace("-", " "),
+        "code_file": name + ".ipynb",
         "language": "python",
         "kernel_type": "notebook",
         "is_private": True,
@@ -84,4 +86,4 @@ def main(dsp_path, norm_path, outdir):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1], sys.argv[2], sys.argv[3]))
+    sys.exit(main(*sys.argv[1:]))

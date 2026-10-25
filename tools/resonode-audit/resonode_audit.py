@@ -494,4 +494,5 @@ def main():
         shutil.rmtree(W, ignore_errors=True)
 
 
-main()
+if __name__ == "__main__":
+    main()
