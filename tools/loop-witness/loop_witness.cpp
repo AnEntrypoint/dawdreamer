@@ -20,8 +20,11 @@ const long T0 = 1000;
 const int NIN = 10;
 const int NOUT = 22;
 const int LOOPER_OUT = 2;
+const int PAD = 64;
+const char* LOOPER = "/loop/looper_0/";
 
 std::vector<float> gX;
+long gNz = 0;
 
 struct Cfg {
     long M;
@@ -48,16 +51,22 @@ struct Loop {
     float wmin;
     float wmax;
     long wlenBad;
+    long nz;
     float wrapStep;
     float otherMax;
     bool wrapOk;
 };
 
-float* zone(std::map<std::string, FAUSTFLOAT*>& zm, const std::string& path)
+std::string path(const char* name)
 {
-    std::map<std::string, FAUSTFLOAT*>::iterator it = zm.find(path);
+    return std::string(LOOPER) + name;
+}
+
+float* zone(std::map<std::string, FAUSTFLOAT*>& zm, const std::string& p)
+{
+    std::map<std::string, FAUSTFLOAT*>::iterator it = zm.find(p);
     if (it == zm.end()) {
-        std::printf("INCONCLUSIVE control path missing: %s\n", path.c_str());
+        std::printf("INCONCLUSIVE control path missing: %s\n", p.c_str());
         std::exit(5);
     }
     return it->second;
@@ -76,20 +85,21 @@ Trace run(const Cfg& c)
         std::printf("INCONCLUSIVE io mismatch inputs=%d outputs=%d\n", d->getNumInputs(), d->getNumOutputs());
         std::exit(6);
     }
+    std::printf("io inputs=%d outputs=%d\n", d->getNumInputs(), d->getNumOutputs());
 
     MapUI ui;
     d->buildUserInterface(&ui);
     std::map<std::string, FAUSTFLOAT*>& zm = ui.getFullpathMap();
-    float* zRec = zone(zm, "/looper00/rec");
-    float* zFin = zone(zm, "/looper00/finishreq");
-    float* zTarget = zone(zm, "/looper00/finishtarget");
-    float* zBias = zone(zm, "/looper00/latencybias");
-    float* zPlay = zone(zm, "/looper00/play");
-    float* zVol = zone(zm, "/looper00/vol");
-    float* zErase = zone(zm, "/looper00/erase");
-    float* zSide = zone(zm, "/looper00/sidechainsrc");
-    float* zWidx = zone(zm, "/looper00/writeidx");
-    float* zWlen = zone(zm, "/looper00/wraplen");
+    float* zRec = zone(zm, path("rec"));
+    float* zFin = zone(zm, path("finishreq"));
+    float* zTarget = zone(zm, path("finishtarget"));
+    float* zBias = zone(zm, path("latencybias"));
+    float* zPlay = zone(zm, path("play"));
+    float* zVol = zone(zm, path("vol"));
+    float* zErase = zone(zm, path("erase"));
+    float* zSide = zone(zm, path("sidechainsrc"));
+    float* zWidx = zone(zm, path("writeidx"));
+    float* zWlen = zone(zm, path("wraplen"));
 
     *zPlay = 1.0f;
     *zVol = 1.0f;
@@ -98,36 +108,33 @@ Trace run(const Cfg& c)
     *zTarget = (float)c.L;
     *zBias = (float)c.bias;
 
-    float ib[NIN];
-    float ob[NOUT];
+    float ibuf[NIN * PAD];
+    float obuf[NOUT * PAD];
     float* inp[NIN];
     float* outp[NOUT];
-    for (int i = 0; i < NIN; i++) {
-        ib[i] = 0.0f;
-        inp[i] = &ib[i];
-    }
-    for (int j = 0; j < NOUT; j++) {
-        ob[j] = 0.0f;
-        outp[j] = &ob[j];
-    }
+    for (int i = 0; i < NIN * PAD; i++) ibuf[i] = 0.0f;
+    for (int j = 0; j < NOUT * PAD; j++) obuf[j] = 0.0f;
+    for (int i = 0; i < NIN; i++) inp[i] = &ibuf[i * PAD];
+    for (int j = 0; j < NOUT; j++) outp[j] = &obuf[j * PAD];
 
     for (long t = 0; t < c.total; t++) {
         *zRec = (t >= T0 && t < c.relAt) ? 1.0f : 0.0f;
         *zFin = (c.press && t == c.finAt) ? 1.0f : 0.0f;
-        ib[0] = 0.0f;
-        ib[1] = gX[t];
-        ib[2] = 0.0f;
-        ib[3] = 1.0f;
-        ib[4] = 1.0f;
-        ib[5] = (float)(t % c.M);
-        ib[6] = (float)c.M;
-        ib[7] = 0.0f;
-        ib[8] = c.B;
-        ib[9] = c.F;
+        ibuf[0 * PAD] = 0.0f;
+        ibuf[1 * PAD] = gX[t];
+        ibuf[2 * PAD] = 0.0f;
+        ibuf[3 * PAD] = 1.0f;
+        ibuf[4 * PAD] = 1.0f;
+        ibuf[5 * PAD] = (float)(t % c.M);
+        ibuf[6 * PAD] = (float)c.M;
+        ibuf[7 * PAD] = 0.0f;
+        ibuf[8 * PAD] = c.B;
+        ibuf[9 * PAD] = c.F;
         d->compute(1, inp, outp);
-        tr.y[t] = ob[LOOPER_OUT];
+        tr.y[t] = obuf[LOOPER_OUT * PAD];
         tr.widx[t] = *zWidx;
         tr.wlen[t] = *zWlen;
+        if (tr.y[t] != 0.0f) gNz++;
     }
 
     delete d;
@@ -143,6 +150,7 @@ Loop analyseLoop(const Trace& tr, long L)
     r.wmin = 1e30f;
     r.wmax = -1e30f;
     r.wlenBad = 0;
+    r.nz = 0;
     r.wrapStep = 0.0f;
     r.otherMax = 0.0f;
     r.wrapOk = false;
@@ -156,6 +164,7 @@ Loop analyseLoop(const Trace& tr, long L)
             r.mism++;
             if (r.first < 0) r.first = t - T0;
         }
+        if (y != 0.0f) r.nz++;
         const float err = std::fabs(y - ex);
         if (err > r.maxerr) r.maxerr = err;
         const float w = tr.wlen[t];
@@ -213,8 +222,8 @@ int main(int argc, char** argv)
             Loop r = analyseLoop(tr, L);
             const bool ok = (r.mism == 0) && r.wrapOk;
             c1ok = c1ok && ok;
-            std::printf("C1 scen=%c take=%s beats L=%ld mism=%ld first=%ld maxerr=%g wlen=[%g,%g] wrapstep=%g other=%g %s\n",
-                        sc == 0 ? 'A' : 'B', takeName[i], L, r.mism, r.first, r.maxerr, r.wmin, r.wmax,
+            std::printf("C1 scen=%c take=%s beats L=%ld mism=%ld first=%ld maxerr=%g nz=%ld wlen=[%g,%g] wrapstep=%g other=%g %s\n",
+                        sc == 0 ? 'A' : 'B', takeName[i], L, r.mism, r.first, r.maxerr, r.nz, r.wmin, r.wmax,
                         r.wrapStep, r.otherMax, ok ? "ok" : "bad");
         }
     }
@@ -304,10 +313,12 @@ int main(int argc, char** argv)
             Loop r = analyseLoop(tr, L);
             const bool ok = (r.wlenBad == 0) && (r.mism == 0);
             c4ok = c4ok && ok;
-            std::printf("C4 k=%d L=%ld fold=%d mism=%ld first=%ld maxerr=%g wlen=[%g,%g] wlenBad=%ld %s\n", k, L, F,
-                        r.mism, r.first, r.maxerr, r.wmin, r.wmax, r.wlenBad, ok ? "ok" : "bad");
+            std::printf("C4 k=%d L=%ld fold=%d mism=%ld first=%ld maxerr=%g nz=%ld wlen=[%g,%g] wlenBad=%ld %s\n", k, L, F,
+                        r.mism, r.first, r.maxerr, r.nz, r.wmin, r.wmax, r.wlenBad, ok ? "ok" : "bad");
         }
     }
     std::printf("CHECK4 %s\n", c4ok ? "PASS" : "FAIL");
+    std::printf("HARNESS nonzero-output-samples=%ld\n", gNz);
+    if (gNz == 0) std::printf("HARNESS SILENT\n");
     return 0;
 }
