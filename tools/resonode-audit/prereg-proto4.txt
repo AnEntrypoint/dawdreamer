@@ -1,0 +1,101 @@
+resonode prototype round 4: pre-registration (fixed before any render)
+
+Context
+- Follows round 1 (kernel heclgang/resonode-proto, tools/resonode-audit/prereg-proto.txt), round 2 (heclgang/resonode-proto2, prereg-proto2.txt) and round 3 (heclgang/resonode-proto3, prereg-proto3.txt).
+- Measured in round 3, in one run with the shipped baseline: base M1 median r 0.1732; E1 (excitation gain from a smoothed input envelope) 0.2731; E2 (E1 plus envelope-driven damping, dampShorten = 1 + inputAmt*3*(1 - min(1, envRatio)) with envRatio = (env + 0.05)/(envPeak + 0.05)) 0.2613, with its RT60 unchanged to four decimals. Round 3's diagnosis: the 0.05 ratio floor sits above the measured speech envelope, so the damping modulation never engaged and the ring never shortened. That is a variant-design fault, not proof the mechanism cannot work.
+- Owner's route decision, unchanged from round 3: the mouth drives the excitation or the decay. Output amplitude modulation, that is multiplying the finished output by an input envelope, is explicitly out of scope and is not run.
+- Shipped source: mc-420 effects/home/faust/resonode_synth.dsp at b563a62a871bf8cfabbc7510da7ee2ffebc7386d, sha256 9afb3b32d5851ae554aaaf513f70dbdcf804257a29c79cc937f0b2f631f8ec8e. mc-420 is read only for this work and is never written.
+- Both variants are prototypes, not shipped changes. A variant that passes is a candidate for mc-420 peer session 420, which implements any change there.
+- Kernel heclgang/resonode-proto4, Kaggle only, no local compile. Route as in the audit: faust_cli -lang cpp -vec -fun -dfs -vs 32 -nvi -ct 0, render_cpp built with g++ -O3 -std=c++17 for x86, no -march and no -mcpu. LLVM is comparison only and is not run.
+- Harness: tools/resonode-audit/proto4_variants.py reuses resonode_audit.py (build, render, analysis) and diag_resonode.py. build_kernel.py packages it with the audit sources. 48000 Hz mono, output channel 0, 64-frame control blocks.
+- The shipped baseline, called base, is compiled, rendered and measured in the same run as the two variants.
+
+Mechanism under test
+- Envelope-tracked decay time with no ratio floor. The damping of round 3 E2 is kept, but the modulation is driven by the absolute smoothed envelope of the live input instead of a peak-relative ratio, and its depth is set so that a full-scale envelope takes the effective T60 all the way down to the shipped 0.05 s decay-dial floor. Decay time therefore follows the mouth continuously instead of only after a peak-relative drop.
+- Direction, fixed here: a loud mouth shortens the ring, a quiet mouth leaves the shipped decay. dampShorten multiplies fundHz inside modePole, so modeInvT60, which is proportional to max(20, freqFund), grows by dampShorten and T60 shrinks by dampShorten. freqMode is computed from fundHz alone and is untouched, so pitch does not move.
+- Only the mode bank is damped. objectVoice keeps the shipped decay, as in round 3.
+
+Edits (applied by the kernel to the shipped text; each anchor must occur exactly once or the run stops; anchors are matched on exact line text and leading spaces are part of the anchor)
+
+Common to F1 and F2, one anchor
+- Anchor (column 0):
+  exciteBus(exciteIn) = sharedExciteIn(exciteIn)*inputAmt + internalExciter*(1.0 - inputAmt);
+- New, seven lines then the unchanged anchor line at column 0:
+  decayEnvAttackPole = ba.tau2pole(0.01);
+  decayEnvReleasePole = ba.tau2pole(0.1);
+  decayEnvFollow(x) = e
+  letrec {
+      'e = ba.if(abs(x) > e, decayEnvAttackPole*e + (1.0 - decayEnvAttackPole)*abs(x), decayEnvReleasePole*e + (1.0 - decayEnvReleasePole)*abs(x));
+  };
+  decayEnvFloor = 0.05;
+  decayEnvDepth = 1.0;
+  exciteBus(exciteIn) = sharedExciteIn(exciteIn)*inputAmt + internalExciter*(1.0 - inputAmt);
+  F2 is the same seven lines with decayEnvDepth = 2.0. The exciteBus line is the insertion point only and is emitted unchanged: this round changes the decay, not the excitation.
+
+Common to F1 and F2, six further anchors (the modeBank plumbing of round 3 E2, reused verbatim except for the bankOut block)
+- Anchor (column 0): voice(busIn, note, gate, vel) = collisionDrive((bankOut + objOut*body)*drivePreGain) * invDrivePreGain * voiceGain * voiceBassTilt(fundHz)
+  New: the same line with "voice(busIn, liveIn, note, gate, vel) =".
+- Anchor (4 spaces): "    bankOut = (exc, fundHz, ratioExponent, positionLive) : modeBank(modeCount);"
+  New, five lines:
+      envNow = decayEnvFollow(liveIn);
+      decayEnvAmt = inputAmt*min(1.0, decayEnvDepth*min(1.0, envNow));
+      decayEnvTarget = decayTime - (decayTime - decayEnvFloor)*decayEnvAmt;
+      dampShorten = decayTime/max(decayEnvFloor, decayEnvTarget);
+      bankOut = (exc, fundHz, ratioExponent, positionLive, dampShorten) : modeBank(modeCount);
+- Anchor (column 0): modeStage(i, coupledIn, exc, freqFund, ratioExponent, positionLive) = normalisedOut, weightedOut
+  New: the same line with ", dampShorten" before ")".
+- Anchor (4 spaces): "    poleRadius = modePole(freqFund, modeDecayScale(i)*exp(highFreqDampExponent*modeLogRatioLive));"
+  New: the same line with "freqFund*dampShorten" in place of "freqFund".
+- Anchor (column 0), five lines: the modeBankStep route header
+  modeBankStep(n) = route(n+4, n*5,
+          par(i, n, (i+1, i*5+1)),
+          par(i, n, (n+1, i*5+2)),
+          par(i, n, (n+2, i*5+3)),
+          par(i, n, (n+3, i*5+4)),
+          par(i, n, (n+4, i*5+5)))
+  New: the same lines with n+5, n*6 and i*6+1 .. i*6+6, plus a sixth line
+          par(i, n, (n+5, i*6+6)))
+- Anchor (column 0): "    (voice(bus,note0,gate0,vel0) + voice(bus,note1,gate1,vel1) + voice(bus,note2,gate2,vel2) + voice(bus,note3,gate3,vel3))"
+  New: the same line with "voice(bus,exciteIn,note..." for all four voices.
+
+Scope decisions, recorded before render
+- (a) The envelope follows abs of the live input exciteIn with the same letrec follower shape round 2 R2c and round 3 E1/E2 used, attack time constant 10 ms, release time constant 100 ms (ba.tau2pole). Its output is the previous sample's state, so on the first sample of a step it is still 0.
+- (b) No ratio floor and no peak hold. decayEnvAmt = inputAmt*min(1.0, decayEnvDepth*min(1.0, envNow)) is the absolute envelope, so the modulation engages on the mouth's level at every instant rather than only after a drop from a held peak. This is the single change from round 3 E2 that round 3 identified as untried.
+- (c) decayEnvTarget = decayTime - (decayTime - decayEnvFloor)*decayEnvAmt maps decayEnvAmt linearly onto the decay dial range: 0 leaves decayTime untouched and 1 gives decayEnvFloor = 0.05 s, the floor of the shipped decay dial. dampShorten = decayTime/max(decayEnvFloor, decayEnvTarget) therefore spans 1 to decayTime/0.05, which at the default decay of 1.2 s is 1 to 24, and the effective T60 of mode 0 at key 60, where noteDampScale is exactly 1.0, reaches 0.05 s at envNow = 1 with decayEnvDepth = 1.0 and at envNow = 0.5 with decayEnvDepth = 2.0.
+- (d) With the input dial at 0, decayEnvAmt is exactly 0.0, so decayEnvTarget is exactly decayTime and dampShorten is exactly 1.0 on every sample; key-only output is bit-identical to shipped by construction, and no clamp is relied on for that.
+- (e) R1 stays a meaningful criterion here. The audit's probe is a single 0.05 impulse in silence; its follower envelope peaks near 1e-4, so decayEnvAmt is near 1e-4 and the decay is left essentially at the dial value. A collapse of the R1 span would therefore be a real failure of the variant, not an artifact of the probe.
+- (f) No loudness compensation is added. Shortening the decay lowers the mouth-driven level; the level change is measured and reported, not corrected.
+- (g) The effective T60 range actually reached under modulation is reported for each variant: the follower of section (a) is applied in the harness to the exact normalised input the kernel renders, and decayEnvTarget is evaluated at key 60 with the input dial at 1.0 and the decay dial at its default 1.2 s, giving min, median and max over the active window of all six vocal files, plus the same figure for the R1 probe. That is the number the depth is judged against.
+- (h) F1 and F2 differ only in decayEnvDepth, 1.0 against 2.0. F2 is run in the same kernel run whether or not F1 passes, so the depth response is measured once.
+
+Render conditions
+- As in the audit (prereg.txt). K mode: input dial 0, key on voice 0 (note, gate 1, vel 1), every other dial at its DSP default. M mode: input dial 1.0, input file a vocal file, the key gated on from frame 0, 0.5 s silent pre-roll.
+- Keys: every MIDI key 36 to 96 inclusive in K mode, 1.2 s held note, for every variant.
+- Vocal set: the six vocal_* files of the audit, normalised to rms 0.1 by the pinned normaliser.
+- M1: median Pearson r over the six vocal files, 20 ms RMS envelope (window 960 samples, the same definition for input and output), over the input active window after the pre-roll.
+- M4: as the audit at key 60. (a) LTAS distance between the female and male vocal outputs; (b) LTAS distance between the female vocal output and the K-mode output of the same duration. Both in dB.
+- R1: as the audit. 12 s render, M mode, key 60 held, the audit's impulse file (0.05 at 0.1 s), decays {0.05, 0.2, 1.2, 3.0, 6.0, 8.0}, Schroeder fit over -5 to -35 dB.
+
+Criteria (audit thresholds; unchanged, and not revised after any number is seen)
+F1 PASS iff all four:
+  (i) M1 median r >= 0.8 on the vocal set;
+  (ii) M4 (a) >= 1 dB and M4 (b) >= 1 dB, measured on F1's own renders;
+  (iii) R1 still spans the range: rt60 at decay 0.05 <= 0.2 s and rt60 at decay 8.0 >= 6.0 s;
+  (iv) key-only regression: for every MIDI key 36 to 96, the K-mode F1 output file sha256 equals the base's.
+F2 PASS iff the same four, measured on F2's own renders.
+M1, M4, R1 and the bit-identical count are reported for every variant whether or not it passes. If both fail, the measured M1 of each is reported together with the effective T60 range each reached, and the next untried mechanism is named.
+
+Reproduction checks (base only; not criteria)
+- Cents for keys 38, 44, 48, 60, 64 against diag_resonode.V2_P3_CENTS, tolerance 0.06 cents.
+- Key-only cents of F1 and F2 equal to base's: implied by the bit-identity criterion and reported with it.
+A mismatch is reported and changes no criterion.
+
+Informational (not criteria)
+- Per variant: M1 r per vocal, M4 both distances, all six RT60 values, the K-mode bit-identical count, the peak level of the female vocal render relative to base, cents for keys 38, 44, 48, 60, 64, and the effective T60 range reached under modulation.
+
+Not run
+- P1 determinism; P2 dial smoothness; P3 as a criterion, since no dial that moves pitch or the mode ratios is touched and key-only output is required to be bit-identical, so P3 is covered by the bit-identity criterion; M2, M3, R2, R3, G1, G2, F1, F2, S1; the LLVM comparison; output amplitude modulation, out of scope by the owner's decision; and any variant other than base, F1 and F2.
+- Control keys 48 and 60 partial powers are not measured separately; the all-keys bit-identity to base implies them.
+
+Reported per variant
+- The edit (anchor and new text), the measured values, PASS or FAIL against its condition, the effective T60 range reached, the dsp text sha256 and the dsp.cpp sha256 from the META lines, the kernel slug and version, the witness dispatch id, and the results file sha256.
