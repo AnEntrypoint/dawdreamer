@@ -210,10 +210,10 @@ int main(int argc, char** argv)
     }
 
     bool c1ok = true;
-    const long takes[4] = {BEAT, 2 * BEAT, 84000, 6 * BEAT};
-    const char* takeName[4] = {"1", "2", "3.5", "6"};
+    const long takes[7] = {BEAT, 2 * BEAT, 3 * BEAT, 84000, 4 * BEAT, 5 * BEAT, 6 * BEAT};
+    const char* takeName[7] = {"1", "2", "3", "3.5", "4", "5", "6"};
     for (int sc = 0; sc < 2; sc++) {
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 7; i++) {
             const long L = takes[i];
             const long M = (sc == 0) ? 6 * BEAT : L;
             const float B = (sc == 0) ? 6.0f : (float)L / (float)BEAT;

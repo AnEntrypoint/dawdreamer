@@ -6,7 +6,7 @@ OUT="$2"
 MODE="${3:-version}"
 REPO=/config/workspace/DawDreamer
 MC420=/config/workspace/mc-420
-DSPREV=0ce2b568d739d7c6e795b048e163bce38103b65e
+DSPREV=72a872faa99df6f5f4b703d654910e1dd519481d
 STAGE="$OUT/stage"
 DSET="$OUT/dataset"
 KDIR="$OUT/kernel"
@@ -25,11 +25,11 @@ git -C "$REPO" show "$SHA:tools/loop-witness/run_witness.py" > "$KDIR/run_witnes
 tar -czf "$DSET/inputs.tar.gz" -C "$STAGE" .
 
 cat > "$DSET/dataset-metadata.json" <<'EOF'
-{"title": "loop-witness inputs", "id": "heclgang/loop-witness-inputs", "licenses": [{"name": "CC0-1.0"}]}
+{"title": "loop-witness fix-verify inputs", "id": "heclgang/loop-witness-fix-verify-inputs", "licenses": [{"name": "CC0-1.0"}]}
 EOF
 
 cat > "$KDIR/kernel-metadata.json" <<'EOF'
-{"id": "heclgang/loop-witness-rerun", "title": "loop-witness rerun", "code_file": "run_witness.py", "language": "python", "kernel_type": "script", "is_private": true, "enable_gpu": false, "enable_tpu": false, "enable_internet": true, "dataset_sources": ["heclgang/loop-witness-inputs"], "competition_sources": [], "kernel_sources": [], "model_sources": []}
+{"id": "heclgang/loop-witness-fix-verify", "title": "loop-witness fix-verify", "code_file": "run_witness.py", "language": "python", "kernel_type": "script", "is_private": true, "enable_gpu": false, "enable_tpu": false, "enable_internet": true, "dataset_sources": ["heclgang/loop-witness-fix-verify-inputs"], "competition_sources": [], "kernel_sources": [], "model_sources": []}
 EOF
 
 if [ "$MODE" = create ]; then
