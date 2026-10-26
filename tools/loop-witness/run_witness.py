@@ -5,7 +5,7 @@ import subprocess
 import tarfile
 import zipfile
 
-DSP_SHA = "1be68dc72d3ccb1e6aa37f17e08f9a8d7a219e97e3007b9d4c25f95c57187c8b"
+DSP_SHA = "dd50018ea3f94c213d16bf2e448e8d7a25615bce7a77498a3324acedc14377e3"
 FAUST = "2.85.9"
 FAUSTLIB_SHA = "78a72d4998dec43e20492ef9b78d1a785b3dc864"
 WORK = "/kaggle/working"

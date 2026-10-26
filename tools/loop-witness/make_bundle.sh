@@ -6,7 +6,7 @@ OUT="$2"
 MODE="${3:-version}"
 REPO=/config/workspace/DawDreamer
 MC420=/config/workspace/mc-420
-DSPREV=b563a62a871bf8cfabbc7510da7ee2ffebc7386d
+DSPREV=0ce2b568d739d7c6e795b048e163bce38103b65e
 STAGE="$OUT/stage"
 DSET="$OUT/dataset"
 KDIR="$OUT/kernel"
@@ -29,7 +29,7 @@ cat > "$DSET/dataset-metadata.json" <<'EOF'
 EOF
 
 cat > "$KDIR/kernel-metadata.json" <<'EOF'
-{"id": "heclgang/loop-witness-final", "title": "loop-witness final", "code_file": "run_witness.py", "language": "python", "kernel_type": "script", "is_private": true, "enable_gpu": false, "enable_tpu": false, "enable_internet": true, "dataset_sources": ["heclgang/loop-witness-inputs"], "competition_sources": [], "kernel_sources": [], "model_sources": []}
+{"id": "heclgang/loop-witness-rerun", "title": "loop-witness rerun", "code_file": "run_witness.py", "language": "python", "kernel_type": "script", "is_private": true, "enable_gpu": false, "enable_tpu": false, "enable_internet": true, "dataset_sources": ["heclgang/loop-witness-inputs"], "competition_sources": [], "kernel_sources": [], "model_sources": []}
 EOF
 
 if [ "$MODE" = create ]; then
