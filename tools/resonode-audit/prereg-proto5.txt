@@ -1,0 +1,35 @@
+resonode prototype round 5: pre-registration (fixed before any render)
+
+Owner decision
+- M1 envelope-follow target re-registered from 0.80 to 0.30, decided by the owner on 2026-10-27, relayed by peer session 420. Verbatim: "M1 envelope-follow target re-registered from 0.80 to 0.30."
+
+Earlier 0.80 target: recorded as FAILED
+- The M1 threshold of 0.80 (audit prereg d9e2cd4c, carried into prereg-proto.txt, prereg-proto2.txt, prereg-proto3.txt, prereg-proto4.txt) was not met by any variant in rounds 1 to 4 (commits d9e2cd4c, 6d76d767, 2bebae0a, d0f36b52).
+- Best measured M1 per round, with witness:
+  - Round 1 (74cec0c8, prereg-proto.txt): V3 decay 0.4, envelope median r 0.29. Witness 1792956360043-4984-4aaf1199bdde8cbe (round 1 witness as cited in prereg-proto2.txt). Shipped baseline M1 0.1732.
+  - Round 2 (6d76d767, prereg-proto2.txt): R2b (stretch sensitivity 0.15 plus decay default 0.4), M1 median r 0.2905. Best across rounds 1 to 4.
+  - Round 3 (2bebae0a, prereg-proto3.txt): E1 excitation gain, M1 median r 0.2731. Shipped baseline in the same run 0.1732. E2 (excitation gain plus envelope damping) 0.2613.
+  - Round 4 (d0f36b52, prereg-proto4.txt): pre-registration only in this repository. No measured M1 is recorded in tools/resonode-audit; the round 4 witness is not recorded here.
+- Best measured M1 across rounds 1 to 4: 0.2905 (round 2, R2b). No round reached 0.80.
+
+New M1 threshold
+- M1 envelope follow: median Pearson r >= 0.30 on the vocal set. Definition unchanged: 20 ms RMS envelope (window 960 samples, same definition for input and output), over the input active window after the 0.5 s pre-roll, six vocal_* files of the audit corpus, M mode, defaults otherwise.
+- This is the only threshold that changes.
+
+Unchanged thresholds (copied from d9e2cd4c, prereg.txt)
+- M4 keys with mouth: fixed key MIDI 60. (a) LTAS distance between M with vocal_female_vibrato and M with vocal_male_baritone_scale; (b) LTAS distance between M with vocal_female_vibrato and K over the same duration. LTAS = mean over frames of the dB spectrum over the active window; distance = RMS over all bins of the dB difference. PASS iff (a) and (b) are both at least 1 dB.
+- R1 decay range: M mode, key 60 held, input = single-sample impulse of amplitude 0.05 at 0.1 s in a 12 s render. Decay in {0.05, 0.2, 1.2, 3.0, 6.0, 8.0}. RT60 = -60 / slope, slope = least-squares fit of the Schroeder backward-integrated energy (dB) over -5 to -35 dB. PASS iff RT60(0.05) <= 0.2 s AND RT60(8.0) >= 6.0 s.
+- P1 determinism: key-only note change (60 to 72 at 0.8 s) and an M run rendered by two separate driver processes. PASS iff every output is byte-identical (sha256).
+- P2 dial smoothness: for each dial with range lo..hi (position 0..1, tone 200..18000, decay 0.05..8, damping 0.05..1, stretch -0.5..1.5, collision 0..1, hardness 0..1, body 0..1), base points at fractions 0.1, 0.2, ..., 0.8 of the range, step +1% of the range, 2.0 s held note, criterion LSD(base, base+step) on the Hann 2048 / hop 512 STFT. A dial PASSES iff its median over the 8 base points is at most 1.5 dB and its maximum is at most 6 dB. Mode K for every dial except tone, measured in M with vocal_female_vibrato. P2 PASSES iff all 8 dials pass.
+- P3 note tracking: K mode, default string shape, MIDI 36 to 96 inclusive, 1.2 s held note. Settled peak = parabolic-interpolated peak of the Hann-windowed 0.3 to 1.2 s segment, zero-padded to 2^18, 20 to 6000 Hz. cents = 1200 log2(f / (440 * 2^((n-69)/12))). Octave error is |cents| >= 600. PASS iff median |cents| <= 10 and octave-error count is 0.
+- Control keys: keys 48 and 60 within 1 dB of the shipped partial powers.
+- Key-only bit-identity: K-mode output is bit-identical (sha256) to shipped on every key where the input amount is zero.
+
+Variants
+- No variant is pre-registered here. Round 5 variants are not chosen by this file.
+- A variant is added by a separate pre-registration commit before its render.
+- Output-amplitude modulation (multiplying the finished output by an input envelope) remains out of scope by the owner's earlier decision.
+
+Verdict rule
+- A variant passes round 5 only if every threshold above holds: M1 (new 0.30 target), M4, R1, P1, P2, P3, control keys 48 and 60, and key-only bit-identity.
+- Thresholds are not changed after numbers are seen.
