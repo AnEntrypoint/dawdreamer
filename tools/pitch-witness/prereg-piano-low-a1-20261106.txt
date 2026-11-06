@@ -1,0 +1,62 @@
+# Pre-registration: offline independent pitch-defect witness, round 1
+# Focus row: defect-piano-low-a1-tau-sensitive
+# Registered 2026-11-06 by dawdreamer-bd, BEFORE any render.
+# Attribution: lanmower only.
+
+## Purpose
+Independently reproduce, offline, the CI claim recorded on
+defect-piano-low-a1-tau-sensitive and supply the row's three acceptance items.
+CI run 40180595931 / sha 263b94dc... is NOT treated as verified until this run
+reproduces it. No threshold is changed and no row is closed by this run.
+
+## Fixed inputs
+- All 34 WAVs named in mc-420 test-audio-corpus/instruments/manifest.json,
+  normalised to rms 0.1 / peak cap 0.9 by tools/corpus-level/normalise-corpus.mjs
+  (sha 4e38a47d5911f1976f44eaa3383cc3680c833274), harness gain 1.0.
+- Two tau variants fetched by commit sha, sha256 recorded in the blob:
+  e5572527 (corrAtLagVar energyTau 0.01) and 98ed9068 (energyTau 0.02).
+- Harness: DawDreamer tools/render-gate/render_gate.cpp (main), Faust 2.85.9
+  libfaust, faustlibraries 78a72d4998dec43e20492ef9b78d1a785b3dc864, B=4800.
+- Whole-series measured pitch: tools/pitch-reference/comb.mjs at its defaults
+  (seconds 6, fmin 60, fmax 1500, grid 0.005, partials 8, within 3, margin 12),
+  with submultiple.mjs run where comb reports no adopted candidate. No pitch is
+  taken from the filename. Both script sha256s are recorded in the blob.
+
+## Fixed definitions
+- Voiced settled block = render_corpus.py at 0e3d6f6c: BLOCK=64, SETTLE_S=1.0,
+  ends = y[63::64], live = (t >= 1.0) & (ends > 0.0); settled median Hz over
+  live ends.
+- Pin rule = PINNED_HZ (60.0, 192.0), PIN_TOL_HZ = 0.001.
+- minTrackHz = 60.0 from pitchtracker_ac.dsp:8 — static source check, recorded
+  verbatim from the fetched tau-0.01 DSP text.
+- 100 ms .txt rows (t >= 1.0, value > 0) are reported as a secondary count.
+
+## Fixed verdict rules (registered before any render; not changeable after)
+V1 CI CLAIM REPRODUCED iff at tau 0.01 piano_low_A1 has voiced_blocks_raw > 0
+   with settled median 60.0 +- 0.001, AND at tau 0.02 voiced_blocks_raw == 0.
+V2 60.0 Hz CLAMP RULED IN iff V1 holds AND the fetched tau-0.01 DSP declares
+   minTrackHz = 60.0 AND the comb measured pitch for piano_low_A1 differs from
+   60.0 by more than 1 Hz. Otherwise RULED OUT.
+V3 TAU DIFFERENCE DOCUMENTED iff the run reports, for every one of the 34 files,
+   the signed change in voiced_blocks_raw and settled median Hz between the two
+   taus. The piano_low_A1 row of that table is the documented difference. A
+   mechanism claim about the confident flag is NOT made here: this kernel uses
+   ONLY the two unmodified tau DSPs and makes no claim about internal signals.
+V4 COMPLETENESS iff all 34 files have a settled output record at both taus.
+   No file dropped, substituted, recomputed at a different gain, or imputed.
+
+## Thresholds NOT touched
+G1 restated, G2, G3, G4, G5, T1-T5, the pin-rule registered 22, and every
+pitch-row acceptance stay exactly as registered. This run reports numbers; it
+changes no threshold, lowers no bar and closes no row. G4 (+116.95 c on
+marimba_low_C2B2) and R3 (pin 21/24 at both taus) remain failing and are quoted
+verbatim from kernel v2 blob 9866ad61..., NOT re-evaluated here.
+
+## Scope and ownership
+Offline independent witnesses on the 34-file corpus only. 420 retains the
+device-side MIDI-injection rows. Owner-only acceptance wording and venue
+decisions are not made here. No mc-420 files are edited by this side.
+
+## Witness
+One Kaggle kernel id, one results blob sha256 and one gm witness dispatch id
+are sent to orchestrator-86 and 420 after the run.
