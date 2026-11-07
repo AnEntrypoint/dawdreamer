@@ -44,7 +44,7 @@ jobs:
         python download_libfaust.py
 
     - name: Build wheels
-      uses: pypa/cibuildwheel@v4.2.1
+      uses: pypa/cibuildwheel@v4.3.5
       env:
         CIBW_PLATFORM: linux
         CIBW_BUILD: ${{ matrix.cibwbuild }}
@@ -193,7 +193,7 @@ jobs:
         python download_libfaust.py
 
     - name: Build wheels ${{ matrix.python-version }}
-      uses: pypa/cibuildwheel@v4.2.1
+      uses: pypa/cibuildwheel@v4.3.5
       env:
         PYTHONMAJOR: ${{ matrix.python-version }}
         MACOSX_DEPLOYMENT_TARGET: 11.0
