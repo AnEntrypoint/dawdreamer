@@ -72,3 +72,16 @@ python setup.py develop
 ---
 
 **See [DEVELOPER.md](DEVELOPER.md) for architecture, development workflow, testing, and detailed troubleshooting.**
+
+## Migrated non-expressible comments (verbatim)
+
+Moved verbatim from `.github/workflows/all.yml` on 2026-11-07; each confirmed still relevant and factual against the current code, not paraphrased.
+
+```text
+        # aarch64 (native arm64 runners; libfaust-ubuntu-aarch64.zip is
+        # downloaded by download_libfaust.py based on the host architecture)
+        # note that the Projucer project refers to PYTHONMAJOR and pythonLocation, so they must be set here
+      # Required for PyPI Trusted Publishing (OIDC).
+          # Authentication uses PyPI Trusted Publishing (OIDC), so no token is needed.
+          # skip-existing lets a partially-uploaded release be completed by rerunning this job.
+```

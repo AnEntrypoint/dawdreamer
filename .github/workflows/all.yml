@@ -18,13 +18,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        # x86_64 (native)
         - { os: ubuntu-22.04, python-version: "3.11", pythonLibPath: "/opt/python/cp311-cp311/lib", pythonInclude: "/opt/python/cp311-cp311/include/python3.11", cibwbuild: "cp311-manylinux_x86_64"}
         - { os: ubuntu-22.04, python-version: "3.12", pythonLibPath: "/opt/python/cp312-cp312/lib", pythonInclude: "/opt/python/cp312-cp312/include/python3.12", cibwbuild: "cp312-manylinux_x86_64"}
         - { os: ubuntu-22.04, python-version: "3.13", pythonLibPath: "/opt/python/cp313-cp313/lib", pythonInclude: "/opt/python/cp313-cp313/include/python3.13", cibwbuild: "cp313-manylinux_x86_64"}
         - { os: ubuntu-22.04, python-version: "3.14", pythonLibPath: "/opt/python/cp314-cp314/lib", pythonInclude: "/opt/python/cp314-cp314/include/python3.14", cibwbuild: "cp314-manylinux_x86_64"}
-        # aarch64 (native arm64 runners; libfaust-ubuntu-aarch64.zip is
-        # downloaded by download_libfaust.py based on the host architecture)
         - { os: ubuntu-24.04-arm, python-version: "3.11", pythonLibPath: "/opt/python/cp311-cp311/lib", pythonInclude: "/opt/python/cp311-cp311/include/python3.11", cibwbuild: "cp311-manylinux_aarch64"}
         - { os: ubuntu-24.04-arm, python-version: "3.12", pythonLibPath: "/opt/python/cp312-cp312/lib", pythonInclude: "/opt/python/cp312-cp312/include/python3.12", cibwbuild: "cp312-manylinux_aarch64"}
         - { os: ubuntu-24.04-arm, python-version: "3.13", pythonLibPath: "/opt/python/cp313-cp313/lib", pythonInclude: "/opt/python/cp313-cp313/include/python3.13", cibwbuild: "cp313-manylinux_aarch64"}
@@ -162,12 +159,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        # Apple Silicon
         - { os: macos-15, build: cp311-macosx_arm64, python-version: "3.11", ARCHS: "arm64" }
         - { os: macos-15, build: cp312-macosx_arm64, python-version: "3.12", ARCHS: "arm64" }
         - { os: macos-15, build: cp313-macosx_arm64, python-version: "3.13", ARCHS: "arm64" }
         - { os: macos-15, build: cp314-macosx_arm64, python-version: "3.14", ARCHS: "arm64" }
-        # Intel
         - { os: macos-15-intel, build: cp311-macosx_x86_64, python-version: "3.11", ARCHS: "x86_64" }
         - { os: macos-15-intel, build: cp312-macosx_x86_64, python-version: "3.12", ARCHS: "x86_64" }
         - { os: macos-15-intel, build: cp313-macosx_x86_64, python-version: "3.13", ARCHS: "x86_64" }
@@ -200,7 +195,6 @@ jobs:
     - name: Build wheels ${{ matrix.python-version }}
       uses: pypa/cibuildwheel@v4.2.1
       env:
-        # note that the Projucer project refers to PYTHONMAJOR and pythonLocation, so they must be set here
         PYTHONMAJOR: ${{ matrix.python-version }}
         MACOSX_DEPLOYMENT_TARGET: 11.0
         CIBW_BUILD_VERBOSITY: 1
@@ -228,7 +222,6 @@ jobs:
     name: "Upload wheels to PyPI"
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
-      # Required for PyPI Trusted Publishing (OIDC).
       id-token: write
     steps:
       - uses: actions/download-artifact@v8
@@ -250,6 +243,4 @@ jobs:
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          # Authentication uses PyPI Trusted Publishing (OIDC), so no token is needed.
-          # skip-existing lets a partially-uploaded release be completed by rerunning this job.
           skip-existing: true
