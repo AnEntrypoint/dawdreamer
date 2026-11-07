@@ -123,7 +123,7 @@ jobs:
           grep -E "Maximum resident|Elapsed|Exit status" gate.time 2>/dev/null || true
       - name: Upload the traces and the memory report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: v3-gate
           path: |
